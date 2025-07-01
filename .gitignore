@@ -3,6 +3,10 @@
 **/*.rs.bk
 Cargo.lock
 
+# WASM build artifacts
+/pkg/
+/wasm-pack.log
+
 # IDE files
 .vscode/
 .idea/
@@ -19,4 +23,8 @@ ehthumbs.db
 Thumbs.db
 
 # Logs
-*.log 
+*.log
+
+# Node.js (if using npm scripts)
+node_modules/
+npm-debug.log* 

@@ -1,6 +1,6 @@
 # Pickover Attractor
 
-A sophisticated Rust application using macroquad to visualize Pickover attractors with multiple color channels, real-time parameter generation, and interactive controls.
+A sophisticated Rust application using macroquad to visualize Pickover attractors with multiple color channels, real-time parameter generation, and interactive controls. **Runs on both desktop and web browsers using WebAssembly!**
 
 ## Features
 
@@ -10,11 +10,12 @@ A sophisticated Rust application using macroquad to visualize Pickover attractor
 - **Performance Monitoring**: Real-time FPS and performance metrics
 - **Window Resizing**: Handles dynamic window resizing
 - **Automatic Reset**: Resets when attractors become saturated or stagnant
+- **Cross-Platform**: Runs natively on desktop and in web browsers via WebAssembly
 
 ## Controls
 
 - **Space**: Generate new attractor parameters
-- **Q**: Quit the application
+- **Q**: Quit the application (desktop only)
 - **Slash (/)**: Toggle help display
 - **Mouse**: Click and drag the correlated deviation slider (in correlated mode)
 
@@ -45,22 +46,46 @@ Where a, b, c, and d are parameters that determine the attractor's behavior.
 
 ## Building and Running
 
-### Prerequisites
+### Desktop Version
+
+#### Prerequisites
 - Rust and Cargo installed on your system
 
-### Build
+#### Build
 ```bash
 cargo build
 ```
 
-### Run
+#### Run
 ```bash
 cargo run
 ```
 
-### Release Build
+#### Release Build
 ```bash
 cargo build --release
+cargo run --release
+```
+
+### Web Version (WebAssembly)
+
+#### Prerequisites
+- Rust and Cargo
+- `wasm-pack` (will be installed automatically by the build script)
+
+#### Build and Run
+```bash
+# Build the WASM version
+./build_wasm.sh
+
+# Run locally
+cd pkg && basic-http-server
+# Then open http://localhost:4000 in your browser
+```
+
+#### Alternative using npm scripts:
+```bash
+npm run dev
 ```
 
 ## Performance
@@ -69,6 +94,7 @@ The application is optimized for real-time visualization:
 - Efficient pixel buffer management
 - Change tracking to minimize texture updates
 - Automatic performance monitoring and logging
+- **WebAssembly provides near-native performance in browsers**
 
 ## Project Structure
 
@@ -76,13 +102,34 @@ The application is optimized for real-time visualization:
 pickover/
 ├── Cargo.toml
 ├── src/
-│   └── main.rs
+│   └── main.rs          # Main application code (works for both desktop and web)
+├── web/
+│   ├── index.html       # Web interface
+│   └── README.md        # Web-specific documentation
+├── build_wasm.sh        # WASM build script
+├── package.json         # Web development scripts
 └── README.md
 ```
 
 ## Dependencies
 
-- `macroquad = "0.4"` - Cross-platform game framework for Rust
+- `macroquad = "0.4"` - Cross-platform game framework for Rust (supports WASM)
+
+## Browser Compatibility
+
+- Chrome 57+
+- Firefox 52+
+- Safari 11+
+- Edge 79+
+
+## Deployment
+
+### Desktop
+- Build with `cargo build --release` and distribute the binary
+
+### Web
+- Run `./build_wasm.sh` to generate the `pkg/` directory
+- Deploy the contents of `pkg/` to any static hosting service (GitHub Pages, Netlify, Vercel, etc.)
 
 ## License
 
