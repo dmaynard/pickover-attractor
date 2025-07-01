@@ -17,6 +17,22 @@
             background: black;
             z-index: 0;
         }
+        
+        /* Improve font rendering for better typography */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            font-smooth: always;
+        }
+        
+        /* Ensure canvas has crisp rendering */
+        canvas {
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
     </style>
 </head>
 <body>

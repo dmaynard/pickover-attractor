@@ -6,7 +6,7 @@ const MAX_ATTRACTOR_RUNTIME: f64 = 60.0;  // Maximum time in seconds before forc
 const DISPLAY_DURATION: f64 = 10.0;  // Time to display the attractor in seconds
 const FADE_DURATION: f64 = 4.0;  // Time to fade out the attractor in seconds
 const SATURATION_THRESHOLD: f64 = 0.15;  // Reset when 15% of active pixels are maxed out
-const DEFAULT_CORRELATED_DEVIATION: f64 = 0.01;  // Default percentage deviation for correlated mode parameters (0.01 = 1% deviation)
+const DEFAULT_CORRELATED_DEVIATION: f64 = 0.002;  // Default percentage deviation for correlated mode parameters (0.002 = 0.2% deviation)
 const UI_AREA_HEIGHT: f32 = 100.0;  // Height reserved for UI elements at the bottom (increased from 75.0)
 
 #[derive(PartialEq, Clone)]
@@ -450,16 +450,16 @@ fn draw_command_summary(inverted: bool) {
     let line_height = 20.0;
     let x_pos = 10.0;
 
-    draw_text("Pickover Attractor Controls:", x_pos, y_start, 20.0, text_color);
-    draw_text("Space - Reset all attractors", x_pos, y_start + line_height, 20.0, text_color);
-    draw_text("P     - Pause/unpause", x_pos, y_start + line_height * 2.0, 20.0, text_color);
-    draw_text("I     - Toggle inversion", x_pos, y_start + line_height * 3.0, 20.0, text_color);
-    draw_text("R     - Toggle red channel", x_pos, y_start + line_height * 4.0, 20.0, text_color);
-    draw_text("G     - Toggle green channel", x_pos, y_start + line_height * 5.0, 20.0, text_color);
-    draw_text("B     - Toggle blue channel", x_pos, y_start + line_height * 6.0, 20.0, text_color);
-    draw_text("M     - Toggle color state", x_pos, y_start + line_height * 7.0, 20.0, text_color);
-    draw_text("/     - Toggle help display", x_pos, y_start + line_height * 8.0, 20.0, text_color);
-    draw_text("Q     - Quit program", x_pos, y_start + line_height * 9.0, 20.0, text_color);
+    draw_text_improved("Pickover Attractor Controls:", x_pos, y_start, 20.0, text_color);
+    draw_text_improved("Space - Reset all attractors", x_pos, y_start + line_height, 20.0, text_color);
+    draw_text_improved("P     - Pause/unpause", x_pos, y_start + line_height * 2.0, 20.0, text_color);
+    draw_text_improved("I     - Toggle inversion", x_pos, y_start + line_height * 3.0, 20.0, text_color);
+    draw_text_improved("R     - Toggle red channel", x_pos, y_start + line_height * 4.0, 20.0, text_color);
+    draw_text_improved("G     - Toggle green channel", x_pos, y_start + line_height * 5.0, 20.0, text_color);
+    draw_text_improved("B     - Toggle blue channel", x_pos, y_start + line_height * 6.0, 20.0, text_color);
+    draw_text_improved("M     - Toggle color state", x_pos, y_start + line_height * 7.0, 20.0, text_color);
+    draw_text_improved("/     - Toggle help display", x_pos, y_start + line_height * 8.0, 20.0, text_color);
+    draw_text_improved("Q     - Quit program", x_pos, y_start + line_height * 9.0, 20.0, text_color);
 }
 
 fn seed_rng() {
@@ -468,9 +468,20 @@ fn seed_rng() {
     rand::srand(seed);
 }
 
+// Helper function for better text rendering
+fn draw_text_improved(text: &str, x: f32, y: f32, font_size: f32, color: Color) {
+    // Draw text without offset to avoid rendering artifacts
+    draw_text(text, x, y, font_size, color);
+}
+
 #[macroquad::main(window_conf)]
 async fn main() {
     seed_rng();  // Seed the RNG with current timestamp
+    
+    // Note: Font loading is commented out due to macroquad version compatibility
+    // If you want to use custom fonts, you may need to update macroquad or use a different approach
+    // For now, we'll use the default font which should still look good
+    println!("Using default font - for custom fonts, update macroquad version");
     
     let w = screen_width() as usize;
     let h = screen_height() as usize;
@@ -478,7 +489,7 @@ async fn main() {
     let mut paused = false;
     let mut show_help = false;
     let mut monochrome = false;  // Global monochrome mode flag
-    let mut color_state = ColorState::RGB;  // Current color state
+    let mut color_state = ColorState::Monochrome;  // Current color state
     let mut shared_params = (0.0, 0.0, 0.0, 0.0);  // Shared parameters for correlated mode
     let mut correlated_deviation = DEFAULT_CORRELATED_DEVIATION;  // Current deviation percentage for correlated mode
 
@@ -712,43 +723,45 @@ async fn main() {
            paused = !paused;
         }
 
-        // Add new key handlers for R, G, B
-        if is_key_pressed(KeyCode::R) {
-            attractors[0].active = !attractors[0].active;
-            if !attractors[0].active {
-                // Clear the red channel
-                for pixel in image_buffer.iter_mut() {
-                    pixel[0] = if attractors[0].invert { 255 } else { 0 };
+        // Add new key handlers for R, G, B (only active in RGB mode)
+        if color_state == ColorState::RGB {
+            if is_key_pressed(KeyCode::R) {
+                attractors[0].active = !attractors[0].active;
+                if !attractors[0].active {
+                    // Clear the red channel
+                    for pixel in image_buffer.iter_mut() {
+                        pixel[0] = if attractors[0].invert { 255 } else { 0 };
+                    }
+                } else {
+                    // Reset the attractor when toggled back on
+                    attractors[0].reset_with_random_params(paused);
                 }
-            } else {
-                // Reset the attractor when toggled back on
-                attractors[0].reset_with_random_params(paused);
             }
-        }
 
-        if is_key_pressed(KeyCode::G) {
-            attractors[1].active = !attractors[1].active;
-            if !attractors[1].active {
-                // Clear the green channel
-                for pixel in image_buffer.iter_mut() {
-                    pixel[1] = if attractors[1].invert { 255 } else { 0 };
+            if is_key_pressed(KeyCode::G) {
+                attractors[1].active = !attractors[1].active;
+                if !attractors[1].active {
+                    // Clear the green channel
+                    for pixel in image_buffer.iter_mut() {
+                        pixel[1] = if attractors[1].invert { 255 } else { 0 };
+                    }
+                } else {
+                    // Reset the attractor when toggled back on
+                    attractors[1].reset_with_random_params(paused);
                 }
-            } else {
-                // Reset the attractor when toggled back on
-                attractors[1].reset_with_random_params(paused);
             }
-        }
 
-        if is_key_pressed(KeyCode::B) {
-            attractors[2].active = !attractors[2].active;
-            if !attractors[2].active {
-                // Clear the blue channel
-                for pixel in image_buffer.iter_mut() {
-                    pixel[2] = if attractors[2].invert { 255 } else { 0 };
+            if is_key_pressed(KeyCode::B) {
+                attractors[2].active = !attractors[2].active;
+                if !attractors[2].active {
+                    // Clear the blue channel
+                    for pixel in image_buffer.iter_mut() {
+                        pixel[2] = if attractors[2].invert { 255 } else { 0 };
+                    }
+                } else {
+                    // Reset the attractor when toggled back on
+                    attractors[2].reset_with_random_params(paused);
                 }
-            } else {
-                // Reset the attractor when toggled back on
-                attractors[2].reset_with_random_params(paused);
             }
         }
 
@@ -851,7 +864,14 @@ async fn main() {
             iterations = 0;
             let mut needs_correlated_reset = false;
             
-            for attractor in attractors.iter_mut() {
+            // In monochrome mode, only process the red attractor
+            let attractors_to_process = if color_state == ColorState::Monochrome {
+                &mut attractors[0..1]
+            } else {
+                &mut attractors[..]
+            };
+            
+            for attractor in attractors_to_process {
                 if !attractor.active {
                     continue;
                 }
@@ -904,7 +924,9 @@ async fn main() {
                             }
                         } else {
                             // Fade every other frame to control fade speed
-                            if frame_count % 2 == 0 {
+                            // Skip individual attractor fade in monochrome mode - handled separately
+                            let should_skip_fade = color_state == ColorState::Monochrome && matches!(attractor.channel, ColorChannel::Red);
+                            if frame_count % 2 == 0 && !should_skip_fade {
                                 attractor.fade_pixels();
                             }
                         }
@@ -953,14 +975,42 @@ async fn main() {
             ColorState::Monochrome => {
                 // In monochrome mode, only use the red attractor and copy its values to all channels
                 let red_attractor = &mut attractors[0];
-                for (idx, changed) in red_attractor.changed_pixels.iter_mut().enumerate() {
-                    if *changed {
-                        let intensity = red_attractor.pixels[idx];
-                        let pixel_value = if red_attractor.invert { 255 - intensity } else { intensity };
-                        image_buffer[idx][0] = pixel_value;
-                        image_buffer[idx][1] = pixel_value;
-                        image_buffer[idx][2] = pixel_value;
-                        *changed = false;
+                
+                // During fade, don't update from attractor's pixel data - only apply unified fade
+                if red_attractor.status == AttractorStatus::Fading {
+                    // Apply fade to all RGB channels together in monochrome mode
+                    if frame_count % 2 == 0 {
+                        for pixel in image_buffer.iter_mut() {
+                            if pixel[0] > 0 || pixel[1] > 0 || pixel[2] > 0 {
+                                let fade_amount = 4;
+                                pixel[0] = pixel[0].saturating_sub(fade_amount);
+                                pixel[1] = pixel[1].saturating_sub(fade_amount);
+                                pixel[2] = pixel[2].saturating_sub(fade_amount);
+                            }
+                        }
+                    }
+                } else {
+                    // Normal operation - update from attractor's pixel data
+                    for (idx, changed) in red_attractor.changed_pixels.iter_mut().enumerate() {
+                        if *changed {
+                            let intensity = red_attractor.pixels[idx];
+                            let pixel_value = if red_attractor.invert { 255 - intensity } else { intensity };
+                            // Ensure all RGB channels have the same value to maintain monochrome appearance
+                            image_buffer[idx][0] = pixel_value;
+                            image_buffer[idx][1] = pixel_value;
+                            image_buffer[idx][2] = pixel_value;
+                            *changed = false;
+                        }
+                    }
+                }
+                
+                // When red attractor starts fading, ensure all channels are in sync
+                if red_attractor.status == AttractorStatus::Fading {
+                    // Ensure all RGB channels have the same values before starting fade
+                    for (idx, pixel) in image_buffer.iter_mut().enumerate() {
+                        let current_value = pixel[0]; // Use red channel as reference
+                        pixel[1] = current_value;
+                        pixel[2] = current_value;
                     }
                 }
             }
@@ -1019,16 +1069,21 @@ async fn main() {
         // Draw UI controls at the bottom - direct drawing instead of UI windows
         let ui_y = screen_height() - UI_AREA_HEIGHT + 10.0;
         
-        // Set UI colors - always use dark mode colors for consistency
-        let text_color = Color::new(1.0, 1.0, 1.0, 1.0);  // Always white text
-        let button_bg_color = Color::new(0.1, 0.1, 0.1, 0.8);  // Always dark gray background
-        let button_active_color = Color::new(0.3, 0.3, 0.3, 0.9);  // Always lighter dark gray for active buttons
+        // Enhanced UI color palette - modern dark theme
+        let text_color = Color::new(0.95, 0.95, 0.95, 1.0);  // Slightly off-white for better readability
+        let label_color = Color::new(0.8, 0.8, 0.8, 1.0);    // Slightly dimmer for labels
+        let button_bg_color = Color::new(0.15, 0.15, 0.18, 0.95);  // Dark blue-gray background
+        let button_active_color = Color::new(0.25, 0.25, 0.35, 0.95);  // Active button color
+        let button_hover_color = Color::new(0.2, 0.2, 0.25, 0.95);  // Hover state color
         
-        // Draw color mode label
-        draw_text("Color Mode:", 10.0, ui_y, 20.0, text_color);
+        // Improved spacing and layout
+        let ui_padding = 15.0;  // Increased padding for better breathing room
+        let button_height = 28.0;  // Slightly taller buttons
+        let button_spacing = 8.0;  // Space between buttons
+        let row_spacing = 12.0;  // Space between rows
         
-        // Draw RGB button
-        let rgb_button_rect = Rect::new(10.0, ui_y + 25.0, 60.0, 25.0);
+        // Draw RGB button with improved layout
+        let rgb_button_rect = Rect::new(ui_padding, ui_y + 10.0, 85.0, button_height);
         let rgb_button_color = if color_state == ColorState::RGB { 
             button_active_color
         } else { 
@@ -1036,56 +1091,62 @@ async fn main() {
         };
         draw_rectangle(rgb_button_rect.x, rgb_button_rect.y, rgb_button_rect.w, rgb_button_rect.h, rgb_button_color);
         let rgb_button_text = if attractors[0].invert { "CYM" } else { "RGB" };
-        let text_y = rgb_button_rect.y + (rgb_button_rect.h + 16.0) / 2.0;  // Center text vertically
-        draw_text(rgb_button_text, rgb_button_rect.x + 5.0, text_y, 16.0, text_color);
+        let text_y = rgb_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        draw_text_improved(rgb_button_text, rgb_button_rect.x + 8.0, text_y, 16.0, text_color);
         
-        // Draw Monochrome button (flush against RGB button)
-        let mono_button_rect = Rect::new(70.0, ui_y + 25.0, 80.0, 25.0);
+        // Draw Monochrome button with proper spacing
+        let mono_button_rect = Rect::new(ui_padding + 85.0 + button_spacing, ui_y + 10.0, 85.0, button_height);
         let mono_button_color = if color_state == ColorState::Monochrome { 
             button_active_color
         } else { 
             button_bg_color
         };
         draw_rectangle(mono_button_rect.x, mono_button_rect.y, mono_button_rect.w, mono_button_rect.h, mono_button_color);
-        let text_y = mono_button_rect.y + (mono_button_rect.h + 16.0) / 2.0;  // Center text vertically
-        draw_text("Monochrome", mono_button_rect.x + 5.0, text_y, 16.0, text_color);
+        let text_y = mono_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        draw_text_improved("Monochrome", mono_button_rect.x + 8.0, text_y, 16.0, text_color);
         
-        // Draw Correlated button (flush against Monochrome button)
-        let corr_button_rect = Rect::new(150.0, ui_y + 25.0, 80.0, 25.0);
+        // Draw Correlated button with proper spacing
+        let corr_button_rect = Rect::new(ui_padding + 85.0 + 85.0 + button_spacing * 2.0, ui_y + 10.0, 85.0, button_height);
         let corr_button_color = if color_state == ColorState::Correlated { 
             button_active_color
         } else { 
             button_bg_color
         };
         draw_rectangle(corr_button_rect.x, corr_button_rect.y, corr_button_rect.w, corr_button_rect.h, corr_button_color);
-        let text_y = corr_button_rect.y + (corr_button_rect.h + 16.0) / 2.0;  // Center text vertically
-        draw_text("Correlated", corr_button_rect.x + 5.0, text_y, 16.0, text_color);
+        let text_y = corr_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        draw_text_improved("Correlated", corr_button_rect.x + 8.0, text_y, 16.0, text_color);
         
-        // Draw Day/Night button
-        let day_button_rect = Rect::new(10.0, ui_y + 55.0, 50.0, 25.0);
+        // Draw Day/Night button with improved layout
+        let day_button_rect = Rect::new(ui_padding, ui_y + 10.0 + button_height + row_spacing, 55.0, button_height);
         let day_button_text = if attractors[0].invert { "Night" } else { "Day" };
         draw_rectangle(day_button_rect.x, day_button_rect.y, day_button_rect.w, day_button_rect.h, button_bg_color);
-        let text_y = day_button_rect.y + (day_button_rect.h + 16.0) / 2.0;  // Center text vertically
-        draw_text(day_button_text, day_button_rect.x + 5.0, text_y, 16.0, text_color);
+        let text_y = day_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        draw_text_improved(day_button_text, day_button_rect.x + 8.0, text_y, 16.0, text_color);
         
-        // Draw Pause/Resume button (flush against Day/Night button)
-        let pause_button_rect = Rect::new(60.0, ui_y + 55.0, 60.0, 25.0);
+        // Draw Pause/Resume button with proper spacing
+        let pause_button_rect = Rect::new(ui_padding + 55.0 + button_spacing, ui_y + 10.0 + button_height + row_spacing, 65.0, button_height);
         let pause_button_text = if paused { "Resume" } else { "Pause" };
         draw_rectangle(pause_button_rect.x, pause_button_rect.y, pause_button_rect.w, pause_button_rect.h, button_bg_color);
-        let text_y = pause_button_rect.y + (pause_button_rect.h + 16.0) / 2.0;  // Center text vertically
-        draw_text(pause_button_text, pause_button_rect.x + 5.0, text_y, 16.0, text_color);
+        let text_y = pause_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        draw_text_improved(pause_button_text, pause_button_rect.x + 8.0, text_y, 16.0, text_color);
         
-        // Draw Help button (flush against Pause/Resume button)
-        let help_button_rect = Rect::new(120.0, ui_y + 55.0, 30.0, 25.0);
+        // Draw Help button with proper spacing
+        let help_button_rect = Rect::new(ui_padding + 55.0 + 65.0 + button_spacing * 2.0, ui_y + 10.0 + button_height + row_spacing, 35.0, button_height);
         draw_rectangle(help_button_rect.x, help_button_rect.y, help_button_rect.w, help_button_rect.h, button_bg_color);
-        let text_y = help_button_rect.y + (help_button_rect.h + 16.0) / 2.0;  // Center text vertically
-        draw_text("?", help_button_rect.x + 10.0, text_y, 16.0, text_color);
+        let text_y = help_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        draw_text_improved("?", help_button_rect.x + 12.0, text_y, 16.0, text_color);
         
-        // Draw Next button (flush against Help button)
-        let next_button_rect = Rect::new(150.0, ui_y + 55.0, 40.0, 25.0);
+        // Draw Next button with proper spacing
+        let next_button_rect = Rect::new(ui_padding + 55.0 + 65.0 + 35.0 + button_spacing * 3.0, ui_y + 10.0 + button_height + row_spacing, 45.0, button_height);
         draw_rectangle(next_button_rect.x, next_button_rect.y, next_button_rect.w, next_button_rect.h, button_bg_color);
-        let text_y = next_button_rect.y + (next_button_rect.h + 16.0) / 2.0;  // Center text vertically
-        draw_text("Next", next_button_rect.x + 5.0, text_y, 16.0, text_color);
+        let text_y = next_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        draw_text_improved("Next", next_button_rect.x + 8.0, text_y, 16.0, text_color);
+        
+        // Draw Quit button with proper spacing
+        let quit_button_rect = Rect::new(ui_padding + 55.0 + 65.0 + 35.0 + 45.0 + button_spacing * 4.0, ui_y + 10.0 + button_height + row_spacing, 45.0, button_height);
+        draw_rectangle(quit_button_rect.x, quit_button_rect.y, quit_button_rect.w, quit_button_rect.h, button_bg_color);
+        let text_y = quit_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        draw_text_improved("Quit", quit_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Handle mouse clicks for buttons
         if is_mouse_button_pressed(MouseButton::Left) {
@@ -1369,12 +1430,17 @@ async fn main() {
                 clear_background(BLACK);
                 image_buffer.fill([0, 0, 0, 255]);
             }
+            
+            // Quit button click
+            if quit_button_rect.contains(vec2(mouse_pos.0, mouse_pos.1)) {
+                std::process::exit(0);
+            }
         }
 
         // Draw UI slider for correlated deviation (only show in correlated mode) - flush left against color mode box
         if color_state == ColorState::Correlated {
-            // Draw slider background (flush against the color mode buttons)
-            let slider_rect = Rect::new(230.0, ui_y, 280.0, 80.0);
+            // Draw slider background (flush against the bottom of screen)
+            let slider_rect = Rect::new(ui_padding + 85.0 + 85.0 + 85.0 + button_spacing * 3.0, screen_height() - 70.0, 280.0, 70.0);
             draw_rectangle(slider_rect.x, slider_rect.y, slider_rect.w, slider_rect.h, button_bg_color);
             
             // Draw slider label
