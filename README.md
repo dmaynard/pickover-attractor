@@ -71,21 +71,23 @@ cargo run --release
 
 #### Prerequisites
 - Rust and Cargo
-- `wasm-pack` (will be installed automatically by the build script)
+- `basic-http-server` (will be installed automatically by the build script)
 
 #### Build and Run
 ```bash
 # Build the WASM version
-./build_wasm.sh
+./build_macroquad_wasm.sh
 
 # Run locally
-cd pkg && basic-http-server
+basic-http-server .
 # Then open http://localhost:4000 in your browser
 ```
 
-#### Alternative using npm scripts:
+#### Alternative using Python:
 ```bash
-npm run dev
+# After building with ./build_macroquad_wasm.sh
+python3 -m http.server 4000
+# Then open http://localhost:4000 in your browser
 ```
 
 ## Performance
@@ -103,11 +105,8 @@ pickover/
 ├── Cargo.toml
 ├── src/
 │   └── main.rs          # Main application code (works for both desktop and web)
-├── web/
-│   ├── index.html       # Web interface
-│   └── README.md        # Web-specific documentation
-├── build_wasm.sh        # WASM build script
-├── package.json         # Web development scripts
+├── index.html           # Web interface
+├── build_macroquad_wasm.sh  # WASM build script
 └── README.md
 ```
 
@@ -128,8 +127,8 @@ pickover/
 - Build with `cargo build --release` and distribute the binary
 
 ### Web
-- Run `./build_wasm.sh` to generate the `pkg/` directory
-- Deploy the contents of `pkg/` to any static hosting service (GitHub Pages, Netlify, Vercel, etc.)
+- Run `./build_macroquad_wasm.sh` to generate the WASM file
+- Deploy `index.html` and `pickover-attractor.wasm` to any static hosting service (GitHub Pages, Netlify, Vercel, etc.)
 
 ## License
 
