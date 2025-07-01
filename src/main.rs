@@ -1,6 +1,5 @@
 use macroquad::prelude::*;
 use macroquad::ui::{hash, root_ui};
-use std::io::{self, Write};
 
 const SCALE: f64 = 120.0;  // Adjusted scale for better visibility
 const MAX_ATTRACTOR_RUNTIME: f64 = 60.0;  // Maximum time in seconds before forcing a reset
@@ -464,12 +463,9 @@ fn draw_command_summary(inverted: bool) {
 }
 
 fn seed_rng() {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    rand::srand(seed as u64);
+    // Use macroquad's get_time() which is WASM-compatible
+    let seed = (get_time() * 1000.0) as u64;
+    rand::srand(seed);
 }
 
 #[macroquad::main(window_conf)]
