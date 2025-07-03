@@ -917,10 +917,18 @@ async fn main() {
                             
                             // Clear the appropriate channel in the image buffer
                             let fill_value = if attractor.invert { 255 } else { 0 };
-                            match attractor.channel {
-                                ColorChannel::Red => image_buffer.iter_mut().for_each(|p| p[0] = fill_value),
-                                ColorChannel::Green => image_buffer.iter_mut().for_each(|p| p[1] = fill_value),
-                                ColorChannel::Blue => image_buffer.iter_mut().for_each(|p| p[2] = fill_value),
+                            match (color_state, attractor.channel) {
+                                (ColorState::Monochrome, ColorChannel::Red) => {
+                                    // In monochrome mode, clear all RGB channels with the same value
+                                    image_buffer.iter_mut().for_each(|p| {
+                                        p[0] = fill_value;
+                                        p[1] = fill_value;
+                                        p[2] = fill_value;
+                                    });
+                                }
+                                (_, ColorChannel::Red) => image_buffer.iter_mut().for_each(|p| p[0] = fill_value),
+                                (_, ColorChannel::Green) => image_buffer.iter_mut().for_each(|p| p[1] = fill_value),
+                                (_, ColorChannel::Blue) => image_buffer.iter_mut().for_each(|p| p[2] = fill_value),
                             }
                         } else {
                             // Fade every other frame to control fade speed
@@ -981,11 +989,22 @@ async fn main() {
                     // Apply fade to all RGB channels together in monochrome mode
                     if frame_count % 2 == 0 {
                         for pixel in image_buffer.iter_mut() {
-                            if pixel[0] > 0 || pixel[1] > 0 || pixel[2] > 0 {
-                                let fade_amount = 4;
-                                pixel[0] = pixel[0].saturating_sub(fade_amount);
-                                pixel[1] = pixel[1].saturating_sub(fade_amount);
-                                pixel[2] = pixel[2].saturating_sub(fade_amount);
+                            if red_attractor.invert {
+                                // In inverted mode, fade towards white (255)
+                                if pixel[0] < 255 || pixel[1] < 255 || pixel[2] < 255 {
+                                    let fade_amount = 4;
+                                    pixel[0] = pixel[0].saturating_add(fade_amount);
+                                    pixel[1] = pixel[1].saturating_add(fade_amount);
+                                    pixel[2] = pixel[2].saturating_add(fade_amount);
+                                }
+                            } else {
+                                // In normal mode, fade towards black (0)
+                                if pixel[0] > 0 || pixel[1] > 0 || pixel[2] > 0 {
+                                    let fade_amount = 4;
+                                    pixel[0] = pixel[0].saturating_sub(fade_amount);
+                                    pixel[1] = pixel[1].saturating_sub(fade_amount);
+                                    pixel[2] = pixel[2].saturating_sub(fade_amount);
+                                }
                             }
                         }
                     }
