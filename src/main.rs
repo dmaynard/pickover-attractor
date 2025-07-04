@@ -154,8 +154,8 @@ impl PickoverSystem {
             color_state: ColorState::RGB,
         };
         
-        // Warmup phase - let the attractor stabilize
-        for _ in 0..1000 {
+        // Reduced warmup phase
+        for _ in 0..500 {
             let (new_x, new_y) = sys.next_point(x, y);
             x = new_x;
             y = new_y;
@@ -167,8 +167,8 @@ impl PickoverSystem {
         let mut min_y = f64::MAX;
         let mut max_y = f64::MIN;
         
-        // Collect points and check for uniqueness
-        for i in 0..10000 {
+        // Reduced evaluation iterations
+        for i in 0..3000 {
             let (new_x, new_y) = sys.next_point(x, y);
             x = new_x;
             y = new_y;
@@ -181,19 +181,19 @@ impl PickoverSystem {
             max_y = max_y.max(y);
             
             // Add point to set (scaled to integer coordinates for uniqueness check)
-            let px = (x * 1000.0) as i32;
-            let py = (y * 1000.0) as i32;
+            let px = (x * 500.0) as i32;  // Reduced precision for faster HashSet operations
+            let py = (y * 500.0) as i32;
             let point_was_new = points.insert((px, py));
             if point_was_new {
                 new_points_count += 1;
             }
             
-            // Check for stagnation every 100 iterations
-            if i % 100 == 0 {
+            // Check for stagnation every 200 iterations (less frequent)
+            if i % 200 == 0 {
                 if points.len() == last_points_count {
                     stagnant_count += 1;
                     // If we've been stagnant for too long, reject this attractor
-                    if stagnant_count > 5 {
+                    if stagnant_count > 3 {  // Reduced threshold
                         return (false, 0.0);
                     }
                 } else {
@@ -203,14 +203,14 @@ impl PickoverSystem {
             }
             
             // Early success if we have enough unique points and good diversity
-            if points.len() > 5000 {
+            if points.len() > 1500 {  // Reduced threshold
                 // Calculate the area of the bounding box
                 let area = (max_x - min_x) * (max_y - min_y);
                 // Calculate percentage of new points
                 let new_points_percentage = new_points_count as f64 / total_iterations as f64;
                 
                 // Ensure the points are well spread out (not clustered) and have good diversity
-                if area > 1.0 && new_points_percentage > 0.9 {
+                if area > 0.5 && new_points_percentage > 0.8 {  // Relaxed criteria
                     return (true, new_points_percentage);
                 }
             }
@@ -226,8 +226,8 @@ impl PickoverSystem {
                 new_points_percentage * 100.0, new_points_count, total_iterations, points.len(), area);
         }
         
-        // Require at least 2000 unique points, good spread, and at least 90% new points
-        let is_good = points.len() > 2000 && area > 1.0 && new_points_percentage > 0.9;
+        // Relaxed requirements for faster generation
+        let is_good = points.len() > 1000 && area > 0.5 && new_points_percentage > 0.8;
         (is_good, new_points_percentage)
     }
 
