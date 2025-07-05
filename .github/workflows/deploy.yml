@@ -1,0 +1,44 @@
+name: Build and Deploy WASM
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+        
+    - name: Install wasm-pack
+      run: cargo install wasm-pack
+      
+    - name: Build WASM
+      run: |
+        chmod +x ./build_macroquad_wasm.sh
+        ./build_macroquad_wasm.sh
+        
+    - name: Create docs directory
+      run: mkdir -p docs
+      
+    - name: Copy web files
+      run: |
+        cp index.html docs/
+        cp pickover-attractor.wasm docs/
+        
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      if: github.ref == 'refs/heads/main'
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs 

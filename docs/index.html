@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pickover Attractor</title>
+    <style>
+        html,
+        body,
+        canvas {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            position: absolute;
+            background: black;
+            z-index: 0;
+        }
+        
+        /* Improve font rendering for better typography */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            font-smooth: always;
+        }
+        
+        /* Ensure canvas has crisp rendering */
+        canvas {
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        
+        /* Description overlay styles */
+        .description-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(5px);
+            transition: opacity 0.3s ease-in-out;
+        }
+        
+        .description-content {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border: 1px solid #4a4a6a;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 600px;
+            max-height: 80vh;
+            margin: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            color: #e0e0e0;
+            font-size: 16px;
+            line-height: 1.6;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .description-title {
+            color: #64b5f6;
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            text-align: center;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .description-text {
+            margin-bottom: 20px;
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .description-text p {
+            margin-bottom: 15px;
+        }
+        
+        .description-text strong {
+            color: #81c784;
+            font-weight: 600;
+        }
+        
+        .description-text em {
+            color: #ffb74d;
+            font-style: italic;
+        }
+        
+        .close-button {
+            background: linear-gradient(135deg, #4a4a6a 0%, #3a3a5a 100%);
+            border: 1px solid #6a6a8a;
+            color: #e0e0e0;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: block;
+            margin: 0 auto;
+            text-align: center;
+        }
+        
+        .close-button:hover {
+            background: linear-gradient(135deg, #5a5a7a 0%, #4a4a6a 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        .close-button:active {
+            transform: translateY(0);
+        }
+        
+        .hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="glcanvas" tabindex='1'></canvas>
+    
+    <!-- Description overlay -->
+    <div class="description-overlay" id="descriptionOverlay">
+        <div class="description-content">
+            <div class="description-title">Pickover Attractor</div>
+            <div class="description-text">
+                <p>
+                    The <strong>Pickover Attractor</strong> is a fascinating mathematical object discovered by Clifford Pickover in 1986. 
+                    It's created by iterating a simple set of equations that generate complex, beautiful patterns.
+                </p>
+                
+                <p>
+                    Pickover, a prolific author and researcher, has written extensively about the connections between mathematics, 
+                    art, and the cosmos. He's particularly known for his work on <em>Jovian attractors</em> - mathematical patterns 
+                    inspired by the chaotic orbits of Jupiter's moons. These celestial bodies, with their complex gravitational 
+                    interactions, create orbital patterns that mirror the mathematical beauty we see in these attractors.
+                </p>
+                
+                <p>
+                    The attractor is defined by just four numbers and these equations:
+                </p>
+                
+                <p style="text-align: center; font-family: monospace; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; margin: 15px 0;">
+                    x<sub>n+1</sub> = sin(b·y<sub>n</sub>) - c·sin(b·x<sub>n</sub>)<br>
+                    y<sub>n+1</sub> = sin(a·x<sub>n</sub>) + d·cos(a·y<sub>n</sub>)
+                </p>
+                
+                <p>
+                    Each point in the visualization represents a single iteration of these equations. 
+                    The <em>colors</em> indicate how many times each pixel has been visited - brighter areas 
+                    show where the attractor spends more time.
+                </p>
+                
+                <p>
+                    <strong>Try different modes:</strong><br>
+                    • <em>Monochrome:</em> Classic grayscale visualization<br>
+                    • <em>RGB:</em> Independent red, green, and blue channels<br>
+                    • <em>Correlated:</em> Related parameters create harmonious patterns
+                </p>
+                
+                <p>
+                    The patterns you see emerge from the chaotic dynamics of these simple equations, 
+                    demonstrating how complex beauty can arise from simple mathematical rules.
+                </p>
+                
+                <p>
+                    Pickover's work shows how these mathematical attractors connect to the real world - from the 
+                    swirling patterns of galaxies to the orbital dances of planets and moons. The same principles 
+                    that create these beautiful visual patterns govern the motion of celestial bodies, making 
+                    this visualization a window into the mathematical poetry of the universe.
+                </p>
+                
+                <p>
+                    In his book <em>"Chaos in Wonderland"</em>, Pickover explores how chaos theory and mathematical 
+                    attractors reveal hidden order within apparent randomness. These patterns, like the ones you're 
+                    seeing, demonstrate how complex systems - whether mathematical, biological, or cosmic - can 
+                    exhibit both chaotic behavior and underlying structure. The attractors serve as visual metaphors 
+                    for the delicate balance between order and chaos that exists throughout nature.
+                </p>
+                
+                <p>
+                    I built this application using vibe coding, the Rust language and the <a href="https://macroquad.rs" target="_blank" style="color: #64b5f6; text-decoration: none;">Macroquad Game Engine</a>
+                </p>
+                
+                <p style="text-align: center; margin-top: 20px; padding-top: 15px; border-top: 1px solid #4a4a6a;">
+                    <strong>Created by David Maynard</strong><br>
+                    <a href="https://github.com/dmaynard/pickover-attractor" target="_blank" style="color: #64b5f6; text-decoration: none;">View open source code on GitHub</a>
+                </p>
+            </div>
+            <button class="close-button" onclick="document.getElementById('descriptionOverlay').classList.add('hidden')">
+                Start Exploring
+            </button>
+        </div>
+    </div>
+    
+    <!-- Minified and statically hosted version of https://github.com/not-fl3/macroquad/blob/master/js/mq_js_bundle.js -->
+    <script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle.js"></script>
+    <script>load("pickover-attractor.wasm");</script> <!-- Your compiled WASM binary -->
+</body>
+</html> 
