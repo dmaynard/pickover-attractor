@@ -1,6 +1,8 @@
 # Pickover Attractor
 
-A sophisticated Rust application using macroquad to visualize Pickover attractors with multiple color channels, real-time parameter generation, and interactive controls. **Runs on both desktop and web browsers using WebAssembly!**
+A Rust application using [macroquad](https://github.com/not-fl3/macroquad) to visualize Pickover attractors with multiple color channels, real-time parameter generation, and interactive controls. **Runs on both desktop and web browsers using WebAssembly!**
+
+🌐 **Live Demo**: [https://dmaynard.github.io/pickover-attractor](https://dmaynard.github.io/pickover-attractor)
 
 ## Features
 
@@ -19,7 +21,7 @@ A sophisticated Rust application using macroquad to visualize Pickover attractor
 - **Slash (/)**: Toggle help display
 - **Mouse**: Click and drag the correlated deviation slider (in correlated mode)
 
-## Color Modes
+## Color Mo
 
 ### RGB Mode
 - Each color channel (Red, Green, Blue) operates independently
@@ -129,6 +131,18 @@ pickover/
 ### Web
 - Run `./build_macroquad_wasm.sh` to generate the WASM file
 - Deploy `index.html` and `pickover-attractor.wasm` to any static hosting service (GitHub Pages, Netlify, Vercel, etc.)
+
+## Credits
+
+This project was developed with assistance from Claude Sonnet 4, an AI coding assistant from Anthropic, used through the Cursor IDE. The AI helped with:
+
+- Initial project structure and Rust/macroquad setup
+- Implementation of the Pickover attractor equations
+- Multi-channel color system (RGB, Monochrome, Correlated modes)
+- WebAssembly compilation and deployment
+- Performance optimizations and real-time visualization
+- UI/UX improvements and interactive controls
+- Cross-platform compatibility (desktop and web)
 
 ## License
 
