@@ -9,6 +9,7 @@ mkdir -p docs
 echo "Copying web files to docs..."
 cp index.html docs/
 cp pickover-attractor.wasm docs/
+cp mq_js_bundle.js docs/
 
 echo "Deployment files ready in docs/ directory!"
 echo "To deploy:"
