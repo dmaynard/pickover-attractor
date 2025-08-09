@@ -32,16 +32,10 @@ enum ColorState {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum SymmetryType {
-    None,           // No symmetry
-    Rotational90,   // 90-degree rotational symmetry
-    Rotational180,  // 180-degree rotational symmetry
-    Rotational270,  // 270-degree rotational symmetry
-    ReflectionX,    // Reflection across X-axis
-    ReflectionY,    // Reflection across Y-axis
-    ReflectionBoth, // Reflection across both axes
-    Radial4,        // 4-fold radial symmetry
-    Radial6,        // 6-fold radial symmetry
-    Radial8,        // 8-fold radial symmetry
+    None,    // No symmetry
+    Radial4, // 4-fold radial symmetry
+    Radial6, // 6-fold radial symmetry
+    Radial8, // 8-fold radial symmetry
 }
 
 #[derive(Clone)]
@@ -124,60 +118,6 @@ impl PickoverSystem {
         match self.symmetry {
             SymmetryType::None => {
                 // No additional pixels
-            }
-            SymmetryType::Rotational90 => {
-                // 90-degree rotation: (x, y) -> (-y, x)
-                let rotated_x = -rel_y + center_x;
-                let rotated_y = rel_x + center_y;
-                if rotated_x >= min_x && rotated_x < max_x && 
-                   rotated_y >= min_y && rotated_y < max_y {
-                    pixels.push((rotated_x, rotated_y));
-                }
-            }
-            SymmetryType::Rotational180 => {
-                // 180-degree rotation: (x, y) -> (-x, -y)
-                let rotated_x = -rel_x + center_x;
-                let rotated_y = -rel_y + center_y;
-                if rotated_x >= min_x && rotated_x < max_x && 
-                   rotated_y >= min_y && rotated_y < max_y {
-                    pixels.push((rotated_x, rotated_y));
-                }
-            }
-            SymmetryType::Rotational270 => {
-                // 270-degree rotation: (x, y) -> (y, -x)
-                let rotated_x = rel_y + center_x;
-                let rotated_y = -rel_x + center_y;
-                if rotated_x >= min_x && rotated_x < max_x && 
-                   rotated_y >= min_y && rotated_y < max_y {
-                    pixels.push((rotated_x, rotated_y));
-                }
-            }
-            SymmetryType::ReflectionX => {
-                // Reflection across X-axis (horizontal flip): (x, y) -> (x, -y)
-                let reflected_x = rel_x + center_x;
-                let reflected_y = -rel_y + center_y;
-                if reflected_x >= min_x && reflected_x < max_x && 
-                   reflected_y >= min_y && reflected_y < max_y {
-                    pixels.push((reflected_x, reflected_y));
-                }
-            }
-            SymmetryType::ReflectionY => {
-                // Reflection across Y-axis (vertical flip): (x, y) -> (-x, y)
-                let reflected_x = -rel_x + center_x;
-                let reflected_y = rel_y + center_y;
-                if reflected_x >= min_x && reflected_x < max_x && 
-                   reflected_y >= min_y && reflected_y < max_y {
-                    pixels.push((reflected_x, reflected_y));
-                }
-            }
-            SymmetryType::ReflectionBoth => {
-                // Reflection across both axes: (x, y) -> (-x, -y)
-                let reflected_x = -rel_x + center_x;
-                let reflected_y = -rel_y + center_y;
-                if reflected_x >= min_x && reflected_x < max_x && 
-                   reflected_y >= min_y && reflected_y < max_y {
-                    pixels.push((reflected_x, reflected_y));
-                }
             }
             SymmetryType::Radial4 => {
                 // 4-fold radial symmetry (90-degree rotations around center)
@@ -268,13 +208,14 @@ impl PickoverSystem {
                         self.nonzero_pixels += 1;
                     }
                     
-                    let new_value = match old_value {
-                        254 => {
-                            self.maxed_pixels += 1;
-                            255
-                        }
-                        255 => 255,
-                        n => n + 1
+                    // Ensure we never wrap from 255 to 0 by using saturating_add
+                    let new_value = if old_value == 255 {
+                        255  // Already at max, stay there
+                    } else if old_value == 254 {
+                        self.maxed_pixels += 1;
+                        255
+                    } else {
+                        old_value.saturating_add(1)  // This will never overflow
                     };
 
                     if new_value != old_value {
@@ -675,16 +616,15 @@ fn draw_text_improved(text: &str, x: f32, y: f32, font_size: f32, color: Color) 
 fn get_symmetry_display_name(symmetry: SymmetryType) -> &'static str {
     match symmetry {
         SymmetryType::None => "None",
-        SymmetryType::Rotational90 => "Rot90",
-        SymmetryType::Rotational180 => "Rot180", 
-        SymmetryType::Rotational270 => "Rot270",
-        SymmetryType::ReflectionX => "FlipX",
-        SymmetryType::ReflectionY => "FlipY",
-        SymmetryType::ReflectionBoth => "FlipXY",
         SymmetryType::Radial4 => "4-Fold",
         SymmetryType::Radial6 => "6-Fold",
         SymmetryType::Radial8 => "8-Fold",
     }
+}
+
+// Helper function to generate random correlation percentage (0-1%)
+fn generate_random_correlation() -> f64 {
+    rand::gen_range(0.0, 1.0) / 100.0  // Convert to percentage (0-0.01)
 }
 
 #[macroquad::main(window_conf)]
@@ -704,7 +644,7 @@ async fn main() {
     let mut monochrome = false;  // Global monochrome mode flag
     let mut color_state = ColorState::Monochrome;  // Current color state
     let mut shared_params = (0.0, 0.0, 0.0, 0.0);  // Shared parameters for correlated mode
-    let mut correlated_deviation = DEFAULT_CORRELATED_DEVIATION;  // Current deviation percentage for correlated mode
+    // Removed correlated_deviation slider - now using random values between 0-1%
     let mut symmetry = SymmetryType::None;  // Current symmetry mode
 
     let mut attractors = vec![
@@ -795,6 +735,7 @@ async fn main() {
                 new_attractor.d = old_attractor.d;
                 new_attractor.invert = old_attractor.invert;
                 new_attractor.active = old_attractor.active;
+                new_attractor.symmetry = symmetry; // Use current global symmetry mode
             }
             
             // Initialize monochrome flag for all attractors
@@ -868,13 +809,15 @@ async fn main() {
                     // Use the same starting position for all attractors
                     let start_x = 0.1;
                     let start_y = 0.1;
+                    // Generate random correlation for this reset
+                    let correlation = generate_random_correlation();
                     
                     // Apply shared parameters with deviations and same starting positions to all attractors
                     for attractor in attractors.iter_mut() {
-                        attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlated_deviation);
-                        attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlated_deviation);
-                        attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlated_deviation);
-                        attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlated_deviation);
+                        attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlation);
+                        attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlation);
+                        attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlation);
+                        attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlation);
                         attractor.x = start_x;
                         attractor.y = start_y;
                         
@@ -1028,13 +971,15 @@ async fn main() {
                     // Use the same starting position for all attractors
                     let start_x = 0.1;
                     let start_y = 0.1;
+                    // Generate random correlation for this mode switch
+                    let correlation = generate_random_correlation();
                     
                     // Apply shared parameters with deviations and same starting positions to all attractors
                     for attractor in attractors.iter_mut() {
-                        attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlated_deviation);
-                        attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlated_deviation);
-                        attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlated_deviation);
-                        attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlated_deviation);
+                        attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlation);
+                        attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlation);
+                        attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlation);
+                        attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlation);
                         attractor.x = start_x;
                         attractor.y = start_y;
                         
@@ -1078,13 +1023,7 @@ async fn main() {
         // Add symmetry mode toggle
         if is_key_pressed(KeyCode::S) {
             symmetry = match symmetry {
-                SymmetryType::None => SymmetryType::Rotational90,
-                SymmetryType::Rotational90 => SymmetryType::Rotational180,
-                SymmetryType::Rotational180 => SymmetryType::Rotational270,
-                SymmetryType::Rotational270 => SymmetryType::ReflectionX,
-                SymmetryType::ReflectionX => SymmetryType::ReflectionY,
-                SymmetryType::ReflectionY => SymmetryType::ReflectionBoth,
-                SymmetryType::ReflectionBoth => SymmetryType::Radial4,
+                SymmetryType::None => SymmetryType::Radial4,
                 SymmetryType::Radial4 => SymmetryType::Radial6,
                 SymmetryType::Radial6 => SymmetryType::Radial8,
                 SymmetryType::Radial8 => SymmetryType::None,
@@ -1096,6 +1035,30 @@ async fn main() {
             for attractor in attractors.iter_mut() {
                 attractor.symmetry = symmetry;
                 attractor.calculate_scales();
+                
+                // Clear pixel data but keep the same parameters
+                attractor.pixels.fill(0);
+                attractor.changed_pixels.fill(true);
+                attractor.nonzero_pixels = 0;
+                attractor.maxed_pixels = 0;
+                attractor.status = AttractorStatus::Running;
+                attractor.start_time = get_time();
+                attractor.display_start_time = get_time();
+                attractor.fade_start_time = get_time();
+                
+                // Reset position to starting point but keep parameters
+                attractor.x = 0.1;
+                attractor.y = 0.1;
+            }
+            
+            // Clear the screen
+            clear_background(if attractors[0].invert { WHITE } else { BLACK });
+            let fill_value = if attractors[0].invert { 255 } else { 0 };
+            for pixel in image_buffer.iter_mut() {
+                pixel[0] = fill_value;
+                pixel[1] = fill_value;
+                pixel[2] = fill_value;
+                pixel[3] = 255;
             }
         }
 
@@ -1188,13 +1151,15 @@ async fn main() {
                 // Use the same starting position for all attractors
                 let start_x = 0.1;
                 let start_y = 0.1;
+                // Generate random correlation for this reset
+                let correlation = generate_random_correlation();
                 
                 // Apply shared parameters with deviations and same starting positions to all attractors
                 for attractor in attractors.iter_mut() {
-                    attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlated_deviation);
-                    attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlated_deviation);
-                    attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlated_deviation);
-                    attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlated_deviation);
+                    attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlation);
+                    attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlation);
+                    attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlation);
+                    attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlation);
                     attractor.x = start_x;
                     attractor.y = start_y;
                     
@@ -1432,13 +1397,15 @@ async fn main() {
                         // Use the same starting position for all attractors
                         let start_x = 0.1;
                         let start_y = 0.1;
+                        // Generate random correlation for this click
+                        let correlation = generate_random_correlation();
                         
                         // Apply shared parameters with deviations and same starting positions to all attractors
                         for attractor in attractors.iter_mut() {
-                            attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlated_deviation);
-                            attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlated_deviation);
-                            attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlated_deviation);
-                            attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlated_deviation);
+                            attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlation);
+                            attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlation);
+                            attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlation);
+                            attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlation);
                             attractor.x = start_x;
                             attractor.y = start_y;
                             
@@ -1576,13 +1543,15 @@ async fn main() {
                     // Use the same starting position for all attractors
                     let start_x = 0.1;
                     let start_y = 0.1;
+                    // Generate random correlation for this button click
+                    let correlation = generate_random_correlation();
                     
                     // Apply shared parameters with deviations and same starting positions to all attractors
                     for attractor in attractors.iter_mut() {
-                        attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlated_deviation);
-                        attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlated_deviation);
-                        attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlated_deviation);
-                        attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlated_deviation);
+                        attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlation);
+                        attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlation);
+                        attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlation);
+                        attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlation);
                         attractor.x = start_x;
                         attractor.y = start_y;
                         
@@ -1615,13 +1584,7 @@ async fn main() {
             // Symmetry button click
             if symmetry_button_rect.contains(vec2(mouse_pos.0, mouse_pos.1)) {
                 symmetry = match symmetry {
-                    SymmetryType::None => SymmetryType::Rotational90,
-                    SymmetryType::Rotational90 => SymmetryType::Rotational180,
-                    SymmetryType::Rotational180 => SymmetryType::Rotational270,
-                    SymmetryType::Rotational270 => SymmetryType::ReflectionX,
-                    SymmetryType::ReflectionX => SymmetryType::ReflectionY,
-                    SymmetryType::ReflectionY => SymmetryType::ReflectionBoth,
-                    SymmetryType::ReflectionBoth => SymmetryType::Radial4,
+                    SymmetryType::None => SymmetryType::Radial4,
                     SymmetryType::Radial4 => SymmetryType::Radial6,
                     SymmetryType::Radial6 => SymmetryType::Radial8,
                     SymmetryType::Radial8 => SymmetryType::None,
@@ -1633,6 +1596,30 @@ async fn main() {
                 for attractor in attractors.iter_mut() {
                     attractor.symmetry = symmetry;
                     attractor.calculate_scales();
+                    
+                    // Clear pixel data but keep the same parameters
+                    attractor.pixels.fill(0);
+                    attractor.changed_pixels.fill(true);
+                    attractor.nonzero_pixels = 0;
+                    attractor.maxed_pixels = 0;
+                    attractor.status = AttractorStatus::Running;
+                    attractor.start_time = get_time();
+                    attractor.display_start_time = get_time();
+                    attractor.fade_start_time = get_time();
+                    
+                    // Reset position to starting point but keep parameters
+                    attractor.x = 0.1;
+                    attractor.y = 0.1;
+                }
+                
+                // Clear the screen
+                clear_background(if attractors[0].invert { WHITE } else { BLACK });
+                let fill_value = if attractors[0].invert { 255 } else { 0 };
+                for pixel in image_buffer.iter_mut() {
+                    pixel[0] = fill_value;
+                    pixel[1] = fill_value;
+                    pixel[2] = fill_value;
+                    pixel[3] = 255;
                 }
             }
             
@@ -1676,13 +1663,15 @@ async fn main() {
                         // Use the same starting position for all attractors
                         let start_x = 0.1;
                         let start_y = 0.1;
+                        // Generate random correlation for this next click
+                        let correlation = generate_random_correlation();
                         
                         // Apply shared parameters with deviations and same starting positions to all attractors
                         for attractor in attractors.iter_mut() {
-                            attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlated_deviation);
-                            attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlated_deviation);
-                            attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlated_deviation);
-                            attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlated_deviation);
+                            attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlation);
+                            attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlation);
+                            attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlation);
+                            attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlation);
                             attractor.x = start_x;
                             attractor.y = start_y;
                             
@@ -1731,82 +1720,7 @@ async fn main() {
             }
         }
 
-        // Draw UI slider for correlated deviation (only show in correlated mode) - flush left against color mode box
-        if color_state == ColorState::Correlated {
-            // Draw slider background (flush against the bottom of screen)
-            let slider_rect = Rect::new(ui_padding + 85.0 + 85.0 + 85.0 + button_spacing * 3.0, screen_height() - 70.0, 280.0, 70.0);
-            draw_rectangle(slider_rect.x, slider_rect.y, slider_rect.w, slider_rect.h, button_bg_color);
-            
-            // Draw slider label
-            draw_text(&format!("Correlated Deviation: {:.1}%", correlated_deviation * 100.0), 
-                     slider_rect.x + 5.0, slider_rect.y + 5.0, 16.0, text_color);
-            draw_text("Drag slider to adjust deviation", 
-                     slider_rect.x + 5.0, slider_rect.y + 25.0, 14.0, text_color);
-            
-            // Draw slider track
-            let track_rect = Rect::new(slider_rect.x + 5.0, slider_rect.y + 45.0, 270.0, 10.0);
-            let track_color = Color::new(0.2, 0.2, 0.2, 0.8);  // Always dark gray track
-            draw_rectangle(track_rect.x, track_rect.y, track_rect.w, track_rect.h, track_color);
-            
-            // Draw slider handle
-            let slider_value = (correlated_deviation * 100.0) as f32;
-            let handle_x = track_rect.x + (slider_value / 5.0) * track_rect.w;
-            let handle_rect = Rect::new(handle_x - 5.0, track_rect.y - 2.0, 10.0, 14.0);
-            draw_rectangle(handle_rect.x, handle_rect.y, handle_rect.w, handle_rect.h, text_color);
-            
-            // Handle slider interaction
-            if is_mouse_button_down(MouseButton::Left) {
-                let mouse_pos = mouse_position();
-                if track_rect.contains(vec2(mouse_pos.0, mouse_pos.1)) {
-                    let relative_x = (mouse_pos.0 - track_rect.x) / track_rect.w;
-                    let new_deviation = (relative_x * 5.0).max(0.0).min(5.0) / 100.0;
-                    if (new_deviation - correlated_deviation as f32).abs() > 0.001 {
-                        println!("Slider changed: {:.1}% -> {:.1}%", correlated_deviation * 100.0, new_deviation * 100.0);
-                        correlated_deviation = new_deviation as f64;
-                        
-                        // Regenerate the attractors with new deviation
-                        // Generate new shared parameters for correlated mode
-                        shared_params = PickoverSystem::generate_interesting_params(paused);
-                        // Use the same starting position for all attractors
-                        let start_x = 0.1;
-                        let start_y = 0.1;
-                        
-                        // Apply shared parameters with new deviations and same starting positions to all attractors
-                        for attractor in attractors.iter_mut() {
-                            attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlated_deviation);
-                            attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlated_deviation);
-                            attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlated_deviation);
-                            attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlated_deviation);
-                            attractor.x = start_x;
-                            attractor.y = start_y;
-                            
-                            // Clear pixel data and reset
-                            attractor.pixels.fill(0);
-                            attractor.changed_pixels.fill(true);
-                            attractor.nonzero_pixels = 0;
-                            attractor.maxed_pixels = 0;
-                            attractor.status = AttractorStatus::Running;
-                            attractor.start_time = get_time();
-                            attractor.display_start_time = get_time();
-                            attractor.fade_start_time = get_time();
-                            
-                            // Recalculate scales for new parameters
-                            attractor.calculate_scales();
-                        }
-                        
-                        // Clear the screen
-                        clear_background(if attractors[0].invert { WHITE } else { BLACK });
-                        let fill_value = if attractors[0].invert { 255 } else { 0 };
-                        for pixel in image_buffer.iter_mut() {
-                            pixel[0] = fill_value;
-                            pixel[1] = fill_value;
-                            pixel[2] = fill_value;
-                            pixel[3] = 255;
-                        }
-                    }
-                }
-            }
-        }
+
 
         // Draw the command summary if help is enabled
         if show_help {
