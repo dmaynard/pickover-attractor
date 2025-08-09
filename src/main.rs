@@ -30,6 +30,20 @@ enum ColorState {
     Correlated, // Channels are correlated/related to each other
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SymmetryType {
+    None,           // No symmetry
+    Rotational90,   // 90-degree rotational symmetry
+    Rotational180,  // 180-degree rotational symmetry
+    Rotational270,  // 270-degree rotational symmetry
+    ReflectionX,    // Reflection across X-axis
+    ReflectionY,    // Reflection across Y-axis
+    ReflectionBoth, // Reflection across both axes
+    Radial4,        // 4-fold radial symmetry
+    Radial6,        // 6-fold radial symmetry
+    Radial8,        // 8-fold radial symmetry
+}
+
 #[derive(Clone)]
 struct PickoverSystem {
     x: f64,
@@ -57,6 +71,7 @@ struct PickoverSystem {
     start_time: f64,       // When this attractor configuration started running
     monochrome: bool,      // Whether to use monochrome mode
     color_state: ColorState, // Current color state
+    symmetry: SymmetryType, // Symmetry transformation to apply
 }
 
 impl PickoverSystem {
@@ -77,6 +92,140 @@ impl PickoverSystem {
         (new_x, new_y)
     }
 
+    // Get the effective drawing bounds (square for symmetry modes, full rectangle for none)
+    fn get_drawing_bounds(&self) -> (i32, i32, i32, i32) {
+        if self.symmetry == SymmetryType::None {
+            // Use full window for no symmetry
+            (0, 0, self.width as i32, self.height as i32)
+        } else {
+            // Use centered square for symmetry modes
+            let square_size = self.width.min(self.height) as i32;
+            let offset_x = (self.width as i32 - square_size) / 2;
+            let offset_y = (self.height as i32 - square_size) / 2;
+            (offset_x, offset_y, offset_x + square_size, offset_y + square_size)
+        }
+    }
+
+    // Generate symmetric pixel coordinates for a given point
+    fn get_symmetric_pixels(&self, screen_x: i32, screen_y: i32) -> Vec<(i32, i32)> {
+        let mut pixels = vec![(screen_x, screen_y)]; // Original pixel
+        
+        // Get the effective drawing bounds
+        let (min_x, min_y, max_x, max_y) = self.get_drawing_bounds();
+        
+        // Calculate center of the drawing area for transformations
+        let center_x = (min_x + max_x) / 2;
+        let center_y = (min_y + max_y) / 2;
+        
+        // Translate to center-based coordinates
+        let rel_x = screen_x - center_x;
+        let rel_y = screen_y - center_y;
+        
+        match self.symmetry {
+            SymmetryType::None => {
+                // No additional pixels
+            }
+            SymmetryType::Rotational90 => {
+                // 90-degree rotation: (x, y) -> (-y, x)
+                let rotated_x = -rel_y + center_x;
+                let rotated_y = rel_x + center_y;
+                if rotated_x >= min_x && rotated_x < max_x && 
+                   rotated_y >= min_y && rotated_y < max_y {
+                    pixels.push((rotated_x, rotated_y));
+                }
+            }
+            SymmetryType::Rotational180 => {
+                // 180-degree rotation: (x, y) -> (-x, -y)
+                let rotated_x = -rel_x + center_x;
+                let rotated_y = -rel_y + center_y;
+                if rotated_x >= min_x && rotated_x < max_x && 
+                   rotated_y >= min_y && rotated_y < max_y {
+                    pixels.push((rotated_x, rotated_y));
+                }
+            }
+            SymmetryType::Rotational270 => {
+                // 270-degree rotation: (x, y) -> (y, -x)
+                let rotated_x = rel_y + center_x;
+                let rotated_y = -rel_x + center_y;
+                if rotated_x >= min_x && rotated_x < max_x && 
+                   rotated_y >= min_y && rotated_y < max_y {
+                    pixels.push((rotated_x, rotated_y));
+                }
+            }
+            SymmetryType::ReflectionX => {
+                // Reflection across X-axis (horizontal flip): (x, y) -> (x, -y)
+                let reflected_x = rel_x + center_x;
+                let reflected_y = -rel_y + center_y;
+                if reflected_x >= min_x && reflected_x < max_x && 
+                   reflected_y >= min_y && reflected_y < max_y {
+                    pixels.push((reflected_x, reflected_y));
+                }
+            }
+            SymmetryType::ReflectionY => {
+                // Reflection across Y-axis (vertical flip): (x, y) -> (-x, y)
+                let reflected_x = -rel_x + center_x;
+                let reflected_y = rel_y + center_y;
+                if reflected_x >= min_x && reflected_x < max_x && 
+                   reflected_y >= min_y && reflected_y < max_y {
+                    pixels.push((reflected_x, reflected_y));
+                }
+            }
+            SymmetryType::ReflectionBoth => {
+                // Reflection across both axes: (x, y) -> (-x, -y)
+                let reflected_x = -rel_x + center_x;
+                let reflected_y = -rel_y + center_y;
+                if reflected_x >= min_x && reflected_x < max_x && 
+                   reflected_y >= min_y && reflected_y < max_y {
+                    pixels.push((reflected_x, reflected_y));
+                }
+            }
+            SymmetryType::Radial4 => {
+                // 4-fold radial symmetry (90-degree rotations around center)
+                for i in 1..4 {
+                    let angle = i as f64 * std::f64::consts::PI / 2.0;
+                    let cos_angle = angle.cos();
+                    let sin_angle = angle.sin();
+                    let rotated_x = (rel_x as f64 * cos_angle - rel_y as f64 * sin_angle) as i32 + center_x;
+                    let rotated_y = (rel_x as f64 * sin_angle + rel_y as f64 * cos_angle) as i32 + center_y;
+                    if rotated_x >= min_x && rotated_x < max_x && 
+                       rotated_y >= min_y && rotated_y < max_y {
+                        pixels.push((rotated_x, rotated_y));
+                    }
+                }
+            }
+            SymmetryType::Radial6 => {
+                // 6-fold radial symmetry (60-degree rotations around center)
+                for i in 1..6 {
+                    let angle = i as f64 * std::f64::consts::PI / 3.0;
+                    let cos_angle = angle.cos();
+                    let sin_angle = angle.sin();
+                    let rotated_x = (rel_x as f64 * cos_angle - rel_y as f64 * sin_angle) as i32 + center_x;
+                    let rotated_y = (rel_x as f64 * sin_angle + rel_y as f64 * cos_angle) as i32 + center_y;
+                    if rotated_x >= min_x && rotated_x < max_x && 
+                       rotated_y >= min_y && rotated_y < max_y {
+                        pixels.push((rotated_x, rotated_y));
+                    }
+                }
+            }
+            SymmetryType::Radial8 => {
+                // 8-fold radial symmetry (45-degree rotations around center)
+                for i in 1..8 {
+                    let angle = i as f64 * std::f64::consts::PI / 4.0;
+                    let cos_angle = angle.cos();
+                    let sin_angle = angle.sin();
+                    let rotated_x = (rel_x as f64 * cos_angle - rel_y as f64 * sin_angle) as i32 + center_x;
+                    let rotated_y = (rel_x as f64 * sin_angle + rel_y as f64 * cos_angle) as i32 + center_y;
+                    if rotated_x >= min_x && rotated_x < max_x && 
+                       rotated_y >= min_y && rotated_y < max_y {
+                        pixels.push((rotated_x, rotated_y));
+                    }
+                }
+            }
+        }
+        
+        pixels
+    }
+
     // Extract common image clearing code
     fn clear_image(&mut self, image_data: &mut [[u8; 4]], fill_value: u8) {
         image_data.iter_mut().for_each(|pixel| {
@@ -94,30 +243,44 @@ impl PickoverSystem {
         self.y = new_y;
 
         // Calculate screen coordinates
-        let screen_x = ((self.x - self.minx) * self.scalex) as i32;
-        let screen_y = ((self.y - self.miny) * self.scaley) as i32;
+        let mut screen_x = ((self.x - self.minx) * self.scalex) as i32;
+        let mut screen_y = ((self.y - self.miny) * self.scaley) as i32;
 
-        // Plot point if in bounds
-        if screen_x >= 0 && screen_x < self.width as i32 && screen_y >= 0 && screen_y < self.height as i32 {
-            let idx = screen_y as usize * self.width + screen_x as usize;
-            if idx < self.pixels.len() {
-                let old_value = self.pixels[idx];
-                if old_value == 0 {
-                    self.nonzero_pixels += 1;
-                }
-                
-                let new_value = match old_value {
-                    254 => {
-                        self.maxed_pixels += 1;
-                        255
+        // Get drawing bounds for offset calculation
+        let (min_x, min_y, max_x, max_y) = self.get_drawing_bounds();
+        
+        // For symmetry modes, offset coordinates to center them in the square drawing area
+        if self.symmetry != SymmetryType::None {
+            screen_x += min_x;
+            screen_y += min_y;
+        }
+
+        // Get all symmetric pixel coordinates
+        let symmetric_pixels = self.get_symmetric_pixels(screen_x, screen_y);
+        
+        // Plot all symmetric pixels
+        for (px, py) in symmetric_pixels {
+            if px >= min_x && px < max_x && py >= min_y && py < max_y {
+                let idx = py as usize * self.width + px as usize;
+                if idx < self.pixels.len() {
+                    let old_value = self.pixels[idx];
+                    if old_value == 0 {
+                        self.nonzero_pixels += 1;
                     }
-                    255 => 255,
-                    n => n + 1
-                };
+                    
+                    let new_value = match old_value {
+                        254 => {
+                            self.maxed_pixels += 1;
+                            255
+                        }
+                        255 => 255,
+                        n => n + 1
+                    };
 
-                if new_value != old_value {
-                    self.pixels[idx] = new_value;
-                    self.changed_pixels[idx] = true;
+                    if new_value != old_value {
+                        self.pixels[idx] = new_value;
+                        self.changed_pixels[idx] = true;
+                    }
                 }
             }
         }
@@ -152,6 +315,7 @@ impl PickoverSystem {
             start_time: 0.0,
             monochrome: false,
             color_state: ColorState::RGB,
+            symmetry: SymmetryType::None,
         };
         
         // Reduced warmup phase
@@ -290,6 +454,7 @@ impl PickoverSystem {
             start_time: current_time,
             monochrome: false,
             color_state,
+            symmetry: SymmetryType::None, // Default to no symmetry
         };
         
         system
@@ -331,24 +496,55 @@ impl PickoverSystem {
         let x_range = (maxx - minx).max(min_range);
         let y_range = (maxy - miny).max(min_range);
         
-        // Add some margin to the bounds
+        // Add margin to the bounds
         let margin = 0.1;  // 10% margin
-        let x_margin = x_range * margin;
-        let y_margin = y_range * margin;
-        minx -= x_margin;
-        maxx += x_margin;
-        miny -= y_margin;
-        maxy += y_margin;
         
-        self.minx = minx;
-        self.miny = miny;
-        
-        // Scale each axis independently to fill the window
-        self.scalex = self.width as f64 / (maxx - minx);
-        self.scaley = self.height as f64 / (maxy - miny);
-        
-        println!("X range: {} to {}, Scale: {}", minx, maxx, self.scalex);
-        println!("Y range: {} to {}, Scale: {}", miny, maxy, self.scaley);
+        if self.symmetry == SymmetryType::None {
+            // No symmetry: use independent scaling to fill screen efficiently
+            let x_margin = x_range * margin;
+            let y_margin = y_range * margin;
+            
+            self.minx = minx - x_margin;
+            let maxx = maxx + x_margin;
+            self.miny = miny - y_margin;
+            let maxy = maxy + y_margin;
+            
+            // Scale each axis independently to fill the window
+            self.scalex = self.width as f64 / (maxx - self.minx);
+            self.scaley = self.height as f64 / (maxy - self.miny);
+            
+            println!("No symmetry - X range: {} to {}, Scale: {}", self.minx, maxx, self.scalex);
+            println!("No symmetry - Y range: {} to {}, Scale: {}", self.miny, maxy, self.scaley);
+        } else {
+            // Symmetry active: use largest square that fits in the window
+            let max_range = x_range.max(y_range);
+            
+            // Find the largest square that fits in the window
+            let square_size = (self.width.min(self.height) as f64) * 0.95; // 95% of smaller dimension
+            
+            // Calculate scale to fit the pattern in this square
+            let total_range = max_range * (1.0 + 2.0 * margin);
+            let uniform_scale = square_size / total_range;
+            
+            // Center the pattern in the mathematical coordinate space
+            let x_center = (minx + maxx) / 2.0;
+            let y_center = (miny + maxy) / 2.0;
+            
+            // Create square bounds centered on the pattern
+            let half_range = total_range / 2.0;
+            self.minx = x_center - half_range;
+            let maxx = x_center + half_range;
+            self.miny = y_center - half_range;
+            let maxy = y_center + half_range;
+            
+            // Use the same uniform scale for both axes
+            self.scalex = uniform_scale;
+            self.scaley = uniform_scale;
+            
+            println!("Symmetry active - Screen: {}x{}, Square size: {:.2}, Pattern range: {:.2}, Scale: {:.4}", 
+                     self.width, self.height, square_size, total_range, uniform_scale);
+            println!("X range: {:.2} to {:.2}, Y range: {:.2} to {:.2}", self.minx, maxx, self.miny, maxy);
+        }
     }
 
     fn print_stats(&self) {
@@ -458,8 +654,9 @@ fn draw_command_summary(inverted: bool) {
     draw_text_improved("G     - Toggle green channel", x_pos, y_start + line_height * 5.0, 20.0, text_color);
     draw_text_improved("B     - Toggle blue channel", x_pos, y_start + line_height * 6.0, 20.0, text_color);
     draw_text_improved("M     - Toggle color state", x_pos, y_start + line_height * 7.0, 20.0, text_color);
-    draw_text_improved("/     - Toggle help display", x_pos, y_start + line_height * 8.0, 20.0, text_color);
-    draw_text_improved("Q     - Quit program", x_pos, y_start + line_height * 9.0, 20.0, text_color);
+    draw_text_improved("S     - Toggle symmetry mode", x_pos, y_start + line_height * 8.0, 20.0, text_color);
+    draw_text_improved("/     - Toggle help display", x_pos, y_start + line_height * 9.0, 20.0, text_color);
+    draw_text_improved("Q     - Quit program", x_pos, y_start + line_height * 10.0, 20.0, text_color);
 }
 
 fn seed_rng() {
@@ -472,6 +669,22 @@ fn seed_rng() {
 fn draw_text_improved(text: &str, x: f32, y: f32, font_size: f32, color: Color) {
     // Draw text without offset to avoid rendering artifacts
     draw_text(text, x, y, font_size, color);
+}
+
+// Helper function to get display name for symmetry types
+fn get_symmetry_display_name(symmetry: SymmetryType) -> &'static str {
+    match symmetry {
+        SymmetryType::None => "None",
+        SymmetryType::Rotational90 => "Rot90",
+        SymmetryType::Rotational180 => "Rot180", 
+        SymmetryType::Rotational270 => "Rot270",
+        SymmetryType::ReflectionX => "FlipX",
+        SymmetryType::ReflectionY => "FlipY",
+        SymmetryType::ReflectionBoth => "FlipXY",
+        SymmetryType::Radial4 => "4-Fold",
+        SymmetryType::Radial6 => "6-Fold",
+        SymmetryType::Radial8 => "8-Fold",
+    }
 }
 
 #[macroquad::main(window_conf)]
@@ -492,6 +705,7 @@ async fn main() {
     let mut color_state = ColorState::Monochrome;  // Current color state
     let mut shared_params = (0.0, 0.0, 0.0, 0.0);  // Shared parameters for correlated mode
     let mut correlated_deviation = DEFAULT_CORRELATED_DEVIATION;  // Current deviation percentage for correlated mode
+    let mut symmetry = SymmetryType::None;  // Current symmetry mode
 
     let mut attractors = vec![
         PickoverSystem::new(0.1, 0.1, w, attractor_h, ColorChannel::Red, paused, color_state),
@@ -499,9 +713,10 @@ async fn main() {
         PickoverSystem::new(0.1, 0.1, w, attractor_h, ColorChannel::Blue, paused, color_state),
     ];
 
-    // Initialize monochrome flag for all attractors
+    // Initialize monochrome flag and symmetry for all attractors
     for attractor in attractors.iter_mut() {
         attractor.monochrome = monochrome;
+        attractor.symmetry = symmetry;
     }
 
     let mut frame_count = 0;
@@ -860,6 +1075,30 @@ async fn main() {
             }
         }
 
+        // Add symmetry mode toggle
+        if is_key_pressed(KeyCode::S) {
+            symmetry = match symmetry {
+                SymmetryType::None => SymmetryType::Rotational90,
+                SymmetryType::Rotational90 => SymmetryType::Rotational180,
+                SymmetryType::Rotational180 => SymmetryType::Rotational270,
+                SymmetryType::Rotational270 => SymmetryType::ReflectionX,
+                SymmetryType::ReflectionX => SymmetryType::ReflectionY,
+                SymmetryType::ReflectionY => SymmetryType::ReflectionBoth,
+                SymmetryType::ReflectionBoth => SymmetryType::Radial4,
+                SymmetryType::Radial4 => SymmetryType::Radial6,
+                SymmetryType::Radial6 => SymmetryType::Radial8,
+                SymmetryType::Radial8 => SymmetryType::None,
+            };
+            
+            println!("Symmetry mode: {:?}", symmetry);
+            
+            // Update symmetry for all attractors and recalculate scales
+            for attractor in attractors.iter_mut() {
+                attractor.symmetry = symmetry;
+                attractor.calculate_scales();
+            }
+        }
+
         if !paused {
             iterations = 0;
             let mut needs_correlated_reset = false;
@@ -1135,6 +1374,18 @@ async fn main() {
         let text_y = corr_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
         draw_text_improved("Correlated", corr_button_rect.x + 8.0, text_y, 16.0, text_color);
         
+        // Draw Symmetry button with proper spacing
+        let symmetry_button_rect = Rect::new(ui_padding + 85.0 + 85.0 + 85.0 + button_spacing * 3.0, ui_y + 10.0, 75.0, button_height);
+        let symmetry_button_color = if symmetry != SymmetryType::None { 
+            button_active_color
+        } else { 
+            button_bg_color
+        };
+        draw_rectangle(symmetry_button_rect.x, symmetry_button_rect.y, symmetry_button_rect.w, symmetry_button_rect.h, symmetry_button_color);
+        let symmetry_text = get_symmetry_display_name(symmetry);
+        let text_y = symmetry_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        draw_text_improved(symmetry_text, symmetry_button_rect.x + 8.0, text_y, 16.0, text_color);
+        
         // Draw Day/Night button with improved layout
         let day_button_rect = Rect::new(ui_padding, ui_y + 10.0 + button_height + row_spacing, 55.0, button_height);
         let day_button_text = if attractors[0].invert { "Night" } else { "Day" };
@@ -1358,6 +1609,30 @@ async fn main() {
                         pixel[2] = fill_value;
                         pixel[3] = 255;
                     }
+                }
+            }
+            
+            // Symmetry button click
+            if symmetry_button_rect.contains(vec2(mouse_pos.0, mouse_pos.1)) {
+                symmetry = match symmetry {
+                    SymmetryType::None => SymmetryType::Rotational90,
+                    SymmetryType::Rotational90 => SymmetryType::Rotational180,
+                    SymmetryType::Rotational180 => SymmetryType::Rotational270,
+                    SymmetryType::Rotational270 => SymmetryType::ReflectionX,
+                    SymmetryType::ReflectionX => SymmetryType::ReflectionY,
+                    SymmetryType::ReflectionY => SymmetryType::ReflectionBoth,
+                    SymmetryType::ReflectionBoth => SymmetryType::Radial4,
+                    SymmetryType::Radial4 => SymmetryType::Radial6,
+                    SymmetryType::Radial6 => SymmetryType::Radial8,
+                    SymmetryType::Radial8 => SymmetryType::None,
+                };
+                
+                println!("Symmetry mode: {:?}", symmetry);
+                
+                // Update symmetry for all attractors and recalculate scales
+                for attractor in attractors.iter_mut() {
+                    attractor.symmetry = symmetry;
+                    attractor.calculate_scales();
                 }
             }
             
