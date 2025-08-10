@@ -68,6 +68,50 @@ struct PickoverSystem {
     symmetry: SymmetryType, // Symmetry transformation to apply
 }
 
+// Pre-calculated symmetry transformation values for performance
+struct SymmetryLookupTables {
+    radial4: Vec<(f64, f64)>,  // (cos, sin) pairs for 4-fold symmetry
+    radial6: Vec<(f64, f64)>,  // (cos, sin) pairs for 6-fold symmetry  
+    radial8: Vec<(f64, f64)>,  // (cos, sin) pairs for 8-fold symmetry
+}
+
+impl SymmetryLookupTables {
+    fn new() -> Self {
+        let mut radial4 = Vec::new();
+        let mut radial6 = Vec::new();
+        let mut radial8 = Vec::new();
+        
+        // 4-fold symmetry: 90°, 180°, 270° rotations
+        for i in 1..4 {
+            let angle = i as f64 * std::f64::consts::PI / 2.0;
+            radial4.push((angle.cos(), angle.sin()));
+        }
+        
+        // 6-fold symmetry: 60°, 120°, 180°, 240°, 300° rotations
+        for i in 1..6 {
+            let angle = i as f64 * std::f64::consts::PI / 3.0;
+            radial6.push((angle.cos(), angle.sin()));
+        }
+        
+        // 8-fold symmetry: 45°, 90°, 135°, 180°, 225°, 270°, 315° rotations
+        for i in 1..8 {
+            let angle = i as f64 * std::f64::consts::PI / 4.0;
+            radial8.push((angle.cos(), angle.sin()));
+        }
+        
+        Self { radial4, radial6, radial8 }
+    }
+}
+
+// Global lookup tables (initialized once)
+static mut SYMMETRY_TABLES: Option<SymmetryLookupTables> = None;
+
+fn get_symmetry_tables() -> &'static SymmetryLookupTables {
+    unsafe {
+        SYMMETRY_TABLES.as_ref().unwrap()
+    }
+}
+
 impl PickoverSystem {
     // Helper function to apply deviation to a parameter
     fn apply_deviation(base_value: f64, deviation_percent: f64) -> f64 {
@@ -107,61 +151,54 @@ impl PickoverSystem {
         // Get the effective drawing bounds
         let (min_x, min_y, max_x, max_y) = self.get_drawing_bounds();
         
-        // Calculate center of the drawing area for transformations
-        let center_x = (min_x + max_x) / 2;
-        let center_y = (min_y + max_y) / 2;
-        
-        // Translate to center-based coordinates
-        let rel_x = screen_x - center_x;
-        let rel_y = screen_y - center_y;
+        // For symmetry modes, we need to transform from full-window coordinates to centered-square coordinates
+        if self.symmetry != SymmetryType::None {
+            // Transform the original point to the centered square
+            let transformed_x = screen_x + min_x;
+            let transformed_y = screen_y + min_y;
+            pixels[0] = (transformed_x, transformed_y);
+            
+            // Calculate center of the drawing area for transformations
+            let center_x = (min_x + max_x) / 2;
+            let center_y = (min_y + max_y) / 2;
+            
+            // Translate to center-based coordinates
+            let rel_x = transformed_x - center_x;
+            let rel_y = transformed_y - center_y;
         
         match self.symmetry {
             SymmetryType::None => {
-                // No additional pixels
+                // No additional pixels - coordinates are already correct
             }
             SymmetryType::Radial4 => {
                 // 4-fold radial symmetry (90-degree rotations around center)
-                for i in 1..4 {
-                    let angle = i as f64 * std::f64::consts::PI / 2.0;
-                    let cos_angle = angle.cos();
-                    let sin_angle = angle.sin();
+                let tables = get_symmetry_tables();
+                for &(cos_angle, sin_angle) in &tables.radial4 {
                     let rotated_x = (rel_x as f64 * cos_angle - rel_y as f64 * sin_angle) as i32 + center_x;
                     let rotated_y = (rel_x as f64 * sin_angle + rel_y as f64 * cos_angle) as i32 + center_y;
-                    if rotated_x >= min_x && rotated_x < max_x && 
-                       rotated_y >= min_y && rotated_y < max_y {
-                        pixels.push((rotated_x, rotated_y));
-                    }
+                    pixels.push((rotated_x, rotated_y));
                 }
             }
             SymmetryType::Radial6 => {
                 // 6-fold radial symmetry (60-degree rotations around center)
-                for i in 1..6 {
-                    let angle = i as f64 * std::f64::consts::PI / 3.0;
-                    let cos_angle = angle.cos();
-                    let sin_angle = angle.sin();
+                let tables = get_symmetry_tables();
+                for &(cos_angle, sin_angle) in &tables.radial6 {
                     let rotated_x = (rel_x as f64 * cos_angle - rel_y as f64 * sin_angle) as i32 + center_x;
                     let rotated_y = (rel_x as f64 * sin_angle + rel_y as f64 * cos_angle) as i32 + center_y;
-                    if rotated_x >= min_x && rotated_x < max_x && 
-                       rotated_y >= min_y && rotated_y < max_y {
-                        pixels.push((rotated_x, rotated_y));
-                    }
+                    pixels.push((rotated_x, rotated_y));
                 }
             }
             SymmetryType::Radial8 => {
                 // 8-fold radial symmetry (45-degree rotations around center)
-                for i in 1..8 {
-                    let angle = i as f64 * std::f64::consts::PI / 4.0;
-                    let cos_angle = angle.cos();
-                    let sin_angle = angle.sin();
+                let tables = get_symmetry_tables();
+                for &(cos_angle, sin_angle) in &tables.radial8 {
                     let rotated_x = (rel_x as f64 * cos_angle - rel_y as f64 * sin_angle) as i32 + center_x;
                     let rotated_y = (rel_x as f64 * sin_angle + rel_y as f64 * cos_angle) as i32 + center_y;
-                    if rotated_x >= min_x && rotated_x < max_x && 
-                       rotated_y >= min_y && rotated_y < max_y {
-                        pixels.push((rotated_x, rotated_y));
-                    }
+                    pixels.push((rotated_x, rotated_y));
                 }
             }
         }
+        }  // Close the if statement for symmetry modes
         
         pixels
     }
@@ -188,12 +225,6 @@ impl PickoverSystem {
 
         // Get drawing bounds for offset calculation
         let (min_x, min_y, max_x, max_y) = self.get_drawing_bounds();
-        
-        // For symmetry modes, offset coordinates to center them in the square drawing area
-        if self.symmetry != SymmetryType::None {
-            screen_x += min_x;
-            screen_y += min_y;
-        }
 
         // Get all symmetric pixel coordinates
         let symmetric_pixels = self.get_symmetric_pixels(screen_x, screen_y);
@@ -630,6 +661,11 @@ fn generate_random_correlation() -> f64 {
 #[macroquad::main(window_conf)]
 async fn main() {
     seed_rng();  // Seed the RNG with current timestamp
+    
+    // Initialize symmetry lookup tables for performance
+    unsafe {
+        SYMMETRY_TABLES = Some(SymmetryLookupTables::new());
+    }
     
     // Note: Font loading is commented out due to macroquad version compatibility
     // If you want to use custom fonts, you may need to update macroquad or use a different approach
