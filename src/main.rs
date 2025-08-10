@@ -646,7 +646,7 @@ fn draw_text_improved(text: &str, x: f32, y: f32, font_size: f32, color: Color) 
 // Helper function to get display name for symmetry types
 fn get_symmetry_display_name(symmetry: SymmetryType) -> &'static str {
     match symmetry {
-        SymmetryType::None => "None",
+        SymmetryType::None => "Symmetry",
         SymmetryType::Radial4 => "4-Fold",
         SymmetryType::Radial6 => "6-Fold",
         SymmetryType::Radial8 => "8-Fold",
