@@ -277,7 +277,7 @@ impl PickoverSystem {
         // Debug: Only print when we're not plotting any pixels for multiple steps
         if pixels_plotted_this_step == 0 {
             self.consecutive_empty_steps += 1;
-            if self.consecutive_empty_steps >= 1000 {  // Only warn after 1000 consecutive empty steps
+            if self.consecutive_empty_steps >= 1000 {  // Transition to Displaying after 1000 consecutive empty steps
                 println!("  Warning: Attractor {} has plotted 0 pixels for {} consecutive steps", 
                          match self.channel { ColorChannel::Red => "Red", ColorChannel::Green => "Green", ColorChannel::Blue => "Blue" },
                          self.consecutive_empty_steps);
@@ -296,29 +296,22 @@ impl PickoverSystem {
                             println!("    First pixel ({}, {}) value: {} (maxed: {})", 
                                      first_px.0, first_px.1, pixel_value, pixel_value == 255);
                             
-                            // If pixel is maxed out, this might be a small loop - force reset
+                            // If pixel is maxed out, this might be a small loop - transition to Displaying
                             if pixel_value == 255 {
-                                println!("    Detected maxed-out loop - forcing attractor reset");
-                                self.needs_full_refresh = true;
-                                // Force immediate reset by setting status to Running
-                                if self.status == AttractorStatus::Displaying {
-                                    self.status = AttractorStatus::Running;
-                                    self.start_time = get_time();
-                                }
+                                println!("    Detected maxed-out loop - transitioning to Displaying state");
+                                self.status = AttractorStatus::Displaying;
+                                self.display_start_time = get_time();
+                                self.consecutive_empty_steps = 0;
+                                return; // Exit early since we've handled the transition
                             }
                         }
                     }
                 }
                 
-                // If we've been stuck for too long with no new pixels, force completion
-                if self.consecutive_empty_steps >= 2000 {  // Increased threshold for state transition
-                    println!("    Attractor stuck for too long - forcing completion and transition to Displaying");
-                    self.status = AttractorStatus::Displaying;
-                    self.display_start_time = get_time();
-                    self.consecutive_empty_steps = 0;
-                }
-                
-                // Reset counter to avoid spam
+                // If we've been stuck for 1000 steps with no new pixels, transition to Displaying
+                println!("    Attractor stuck for too long - transitioning to Displaying state");
+                self.status = AttractorStatus::Displaying;
+                self.display_start_time = get_time();
                 self.consecutive_empty_steps = 0;
             }
         } else {
