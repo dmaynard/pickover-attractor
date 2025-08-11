@@ -68,6 +68,7 @@ struct PickoverSystem {
     monochrome: bool,      // Whether to use monochrome mode
     color_state: ColorState, // Current color state
     symmetry: SymmetryType, // Symmetry transformation to apply
+    consecutive_empty_steps: u32, // Counter for debugging empty pixel updates
 }
 
 // Pre-calculated symmetry transformation values for performance
@@ -133,40 +134,42 @@ impl PickoverSystem {
     }
 
     // Get the effective drawing bounds (square for symmetry modes, full rectangle for none)
-    fn get_drawing_bounds(&self) -> (i32, i32, i32, i32) {
+    fn get_drawing_bounds(&self) -> (f64, f64, f64, f64) {
         if self.symmetry == SymmetryType::None {
             // Use full window for no symmetry
-            (0, 0, self.width as i32, self.height as i32)
+            (0.0, 0.0, self.width as f64, self.height as f64)
         } else {
-            // Use centered square for symmetry modes
-            let square_size = self.width.min(self.height) as i32;
-            let offset_x = (self.width as i32 - square_size) / 2;
-            let offset_y = (self.height as i32 - square_size) / 2;
+            // Use centered square for symmetry modes - keep as f64 for precision
+            let square_size = self.width.min(self.height) as f64;
+            let offset_x = (self.width as f64 - square_size) * 0.5;
+            let offset_y = (self.height as f64 - square_size) * 0.5;
             (offset_x, offset_y, offset_x + square_size, offset_y + square_size)
         }
     }
 
-    // Generate symmetric pixel coordinates for a given point
-    fn get_symmetric_pixels(&self, screen_x: i32, screen_y: i32) -> Vec<(i32, i32)> {
-        let mut pixels = vec![(screen_x, screen_y)]; // Original pixel
+    // Generate symmetric pixel coordinates for a given point (f64 version for maximum precision)
+    fn get_symmetric_pixels_f64(&self, screen_x: f64, screen_y: f64) -> Vec<(i32, i32)> {
+        let mut pixels = Vec::new();
         
-        // Get the effective drawing bounds
+        // Get the effective drawing bounds (now in f64 for precision)
         let (min_x, min_y, max_x, max_y) = self.get_drawing_bounds();
         
         // For symmetry modes, we need to transform from full-window coordinates to centered-square coordinates
         if self.symmetry != SymmetryType::None {
-            // Transform the original point to the centered square
+            // Transform the original point to the centered square (keep as f64 for precision)
             let transformed_x = screen_x + min_x;
             let transformed_y = screen_y + min_y;
-            pixels[0] = (transformed_x, transformed_y);
             
-            // Calculate center of the drawing area for transformations
-            let center_x = (min_x + max_x) / 2;
-            let center_y = (min_y + max_y) / 2;
+            // Calculate center of the drawing area for transformations (keep as f64)
+            let center_x = (min_x + max_x) * 0.5;
+            let center_y = (min_y + max_y) * 0.5;
             
             // Translate to center-based coordinates (keep as f64 for precision)
-            let rel_x = (transformed_x - center_x) as f64;
-            let rel_y = (transformed_y - center_y) as f64;
+            let rel_x = transformed_x - center_x;
+            let rel_y = transformed_y - center_y;
+            
+            // Add the original transformed pixel
+            pixels.push((transformed_x.round() as i32, transformed_y.round() as i32));
         
         match self.symmetry {
             SymmetryType::None => {
@@ -176,8 +179,8 @@ impl PickoverSystem {
                 // 4-fold radial symmetry (90-degree rotations around center)
                 let tables = get_symmetry_tables();
                 for &(cos_angle, sin_angle) in &tables.radial4 {
-                    let rotated_x = (rel_x * cos_angle - rel_y * sin_angle).round() as i32 + center_x;
-                    let rotated_y = (rel_x * sin_angle + rel_y * cos_angle).round() as i32 + center_y;
+                    let rotated_x = (rel_x * cos_angle - rel_y * sin_angle).round() as i32 + center_x.round() as i32;
+                    let rotated_y = (rel_x * sin_angle + rel_y * cos_angle).round() as i32 + center_y.round() as i32;
                     pixels.push((rotated_x, rotated_y));
                 }
             }
@@ -185,8 +188,8 @@ impl PickoverSystem {
                 // 6-fold radial symmetry (60-degree rotations around center)
                 let tables = get_symmetry_tables();
                 for &(cos_angle, sin_angle) in &tables.radial6 {
-                    let rotated_x = (rel_x * cos_angle - rel_y * sin_angle).round() as i32 + center_x;
-                    let rotated_y = (rel_x * sin_angle + rel_y * cos_angle).round() as i32 + center_y;
+                    let rotated_x = (rel_x * cos_angle - rel_y * sin_angle).round() as i32 + center_x.round() as i32;
+                    let rotated_y = (rel_x * sin_angle + rel_y * cos_angle).round() as i32 + center_y.round() as i32;
                     pixels.push((rotated_x, rotated_y));
                 }
             }
@@ -194,15 +197,23 @@ impl PickoverSystem {
                 // 8-fold radial symmetry (45-degree rotations around center)
                 let tables = get_symmetry_tables();
                 for &(cos_angle, sin_angle) in &tables.radial8 {
-                    let rotated_x = (rel_x * cos_angle - rel_y * sin_angle).round() as i32 + center_x;
-                    let rotated_y = (rel_x * sin_angle + rel_y * cos_angle).round() as i32 + center_y;
+                    let rotated_x = (rel_x * cos_angle - rel_y * sin_angle).round() as i32 + center_x.round() as i32;
+                    let rotated_y = (rel_x * sin_angle + rel_y * cos_angle).round() as i32 + center_y.round() as i32;
                     pixels.push((rotated_x, rotated_y));
                 }
             }
         }
-        }  // Close the if statement for symmetry modes
+        } else {
+            // No symmetry: just add the original pixel
+            pixels.push((screen_x.round() as i32, screen_y.round() as i32));
+        }
         
         pixels
+    }
+
+    // Generate symmetric pixel coordinates for a given point (legacy i32 version)
+    fn get_symmetric_pixels(&self, screen_x: i32, screen_y: i32) -> Vec<(i32, i32)> {
+        self.get_symmetric_pixels_f64(screen_x as f64, screen_y as f64)
     }
 
     // Extract common image clearing code
@@ -221,19 +232,22 @@ impl PickoverSystem {
         self.x = new_x;
         self.y = new_y;
 
-        // Calculate screen coordinates
-        let mut screen_x = ((self.x - self.minx) * self.scalex) as i32;
-        let mut screen_y = ((self.y - self.miny) * self.scaley) as i32;
+        // Calculate screen coordinates (keep as f64 for precision until final conversion)
+        let screen_x_f64 = (self.x - self.minx) * self.scalex;
+        let screen_y_f64 = (self.y - self.miny) * self.scaley;
 
-        // Get drawing bounds for offset calculation
-        let (min_x, min_y, max_x, max_y) = self.get_drawing_bounds();
+        // Get drawing bounds for offset calculation (now in f64 for precision)
+        let _bounds = self.get_drawing_bounds(); // Used by get_symmetric_pixels_f64
 
-        // Get all symmetric pixel coordinates
-        let symmetric_pixels = self.get_symmetric_pixels(screen_x, screen_y);
+        // Get all symmetric pixel coordinates (pass f64 coordinates)
+        let symmetric_pixels = self.get_symmetric_pixels_f64(screen_x_f64, screen_y_f64);
+        let total_symmetric_pixels = symmetric_pixels.len();
         
         // Plot all symmetric pixels
+        let mut pixels_plotted_this_step = 0;
+        
         for (px, py) in symmetric_pixels {
-            if px >= min_x && px < max_x && py >= min_y && py < max_y {
+            if px >= 0 && px < self.width as i32 && py >= 0 && py < self.height as i32 {
                 let idx = py as usize * self.width + px as usize;
                 if idx < self.pixels.len() {
                     let old_value = self.pixels[idx];
@@ -254,9 +268,61 @@ impl PickoverSystem {
                     if new_value != old_value {
                         self.pixels[idx] = new_value;
                         self.changed_pixel_indices.push(idx);
+                        pixels_plotted_this_step += 1;
                     }
                 }
             }
+        }
+        
+        // Debug: Only print when we're not plotting any pixels for multiple steps
+        if pixels_plotted_this_step == 0 {
+            self.consecutive_empty_steps += 1;
+            if self.consecutive_empty_steps >= 1000 {  // Only warn after 1000 consecutive empty steps
+                println!("  Warning: Attractor {} has plotted 0 pixels for {} consecutive steps", 
+                         match self.channel { ColorChannel::Red => "Red", ColorChannel::Green => "Green", ColorChannel::Blue => "Blue" },
+                         self.consecutive_empty_steps);
+                println!("    Current coords: x={:.3}, y={:.3}, screen_x={:.1}, screen_y={:.1}", 
+                         self.x, self.y, screen_x_f64, screen_y_f64);
+                println!("    Scales: scalex={:.6}, scaley={:.6}", self.scalex, self.scaley);
+                println!("    Symmetric pixels generated: {}", total_symmetric_pixels);
+                
+                // Check if the pixels are already maxed out
+                if total_symmetric_pixels > 0 {
+                    let first_px = (screen_x_f64.round() as i32, screen_y_f64.round() as i32);
+                    if first_px.0 >= 0 && first_px.0 < self.width as i32 && first_px.1 >= 0 && first_px.1 < self.height as i32 {
+                        let idx = first_px.1 as usize * self.width + first_px.0 as usize;
+                        if idx < self.pixels.len() {
+                            let pixel_value = self.pixels[idx];
+                            println!("    First pixel ({}, {}) value: {} (maxed: {})", 
+                                     first_px.0, first_px.1, pixel_value, pixel_value == 255);
+                            
+                            // If pixel is maxed out, this might be a small loop - force reset
+                            if pixel_value == 255 {
+                                println!("    Detected maxed-out loop - forcing attractor reset");
+                                self.needs_full_refresh = true;
+                                // Force immediate reset by setting status to Running
+                                if self.status == AttractorStatus::Displaying {
+                                    self.status = AttractorStatus::Running;
+                                    self.start_time = get_time();
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // If we've been stuck for too long with no new pixels, force completion
+                if self.consecutive_empty_steps >= 2000 {  // Increased threshold for state transition
+                    println!("    Attractor stuck for too long - forcing completion and transition to Displaying");
+                    self.status = AttractorStatus::Displaying;
+                    self.display_start_time = get_time();
+                    self.consecutive_empty_steps = 0;
+                }
+                
+                // Reset counter to avoid spam
+                self.consecutive_empty_steps = 0;
+            }
+        } else {
+            self.consecutive_empty_steps = 0;
         }
     }
 
@@ -292,6 +358,7 @@ impl PickoverSystem {
             monochrome: false,
             color_state: ColorState::RGB,
             symmetry: SymmetryType::None,
+            consecutive_empty_steps: 0,
         };
         
         // Reduced warmup phase
@@ -433,6 +500,7 @@ impl PickoverSystem {
             monochrome: false,
             color_state,
             symmetry: SymmetryType::None, // Default to no symmetry
+            consecutive_empty_steps: 0,
         };
         
         system
@@ -650,8 +718,30 @@ fn draw_command_summary(inverted: bool) {
 }
 
 fn seed_rng() {
-    // Use macroquad's get_time() which is WASM-compatible
-    let seed = (get_time() * 1000.0) as u64;
+    // Create a more robust seed using multiple entropy sources
+    let mut seed = 0u64;
+    
+    // Source 1: High-precision time (microseconds)
+    let time_seed = (get_time() * 1_000_000.0) as u64;
+    seed = seed.wrapping_add(time_seed);
+    
+    // Source 2: Screen dimensions (provides some variation)
+    let screen_seed = (screen_width() as u64).wrapping_mul(screen_height() as u64);
+    seed = seed.wrapping_add(screen_seed);
+    
+    // Source 3: Add some additional entropy from system time components
+    let now = std::time::SystemTime::now();
+    if let Ok(duration) = now.duration_since(std::time::UNIX_EPOCH) {
+        seed = seed.wrapping_add(duration.as_nanos() as u64);
+    }
+    
+    // Mix the seed using a simple but effective algorithm
+    seed = seed.wrapping_mul(0x5bd1e995);
+    seed = seed.wrapping_add(0x5bd1e995);
+    seed ^= seed >> 15;
+    seed = seed.wrapping_mul(0x5bd1e995);
+    
+    println!("RNG seeded with: {}", seed);
     rand::srand(seed);
 }
 
@@ -675,6 +765,8 @@ fn get_symmetry_display_name(symmetry: SymmetryType) -> &'static str {
 fn generate_random_correlation() -> f64 {
     rand::gen_range(0.0, 1.0) / 100.0  // Convert to percentage (0-0.01)
 }
+
+
 
 #[macroquad::main(window_conf)]
 async fn main() {
@@ -915,8 +1007,22 @@ async fn main() {
                     }
                 }
             }
-            clear_background(BLACK);
-            image_buffer.fill([0, 0, 0, 255]);
+            // Clear background and image buffer using global_invert setting
+            let fill_value = if global_invert { 255 } else { 0 };
+            clear_background(if global_invert { WHITE } else { BLACK });
+            image_buffer.fill([fill_value, fill_value, fill_value, 255]);
+            
+            // Ensure all attractors have correct invert state and need refresh
+            for attractor in attractors.iter_mut() {
+                attractor.invert = global_invert;
+                attractor.needs_full_refresh = true;
+                // Force attractors stuck in "Displaying" mode back to "Running"
+                if attractor.status == AttractorStatus::Displaying {
+                    attractor.status = AttractorStatus::Running;
+                    attractor.start_time = get_time();
+                }
+                attractor.consecutive_empty_steps = 0;
+            }
         }
 
         if is_key_pressed(KeyCode::I) {
@@ -1169,6 +1275,7 @@ async fn main() {
                             if color_state == ColorState::Correlated {
                                 needs_correlated_reset = true;
                             }
+                            println!("  Attractor transitioning to Displaying state (frame {})", frame_count);
                             attractor.status = AttractorStatus::Displaying;
                             attractor.display_start_time = get_time();
                         }
@@ -1176,6 +1283,12 @@ async fn main() {
                     AttractorStatus::Displaying => {
                         let display_elapsed = get_time() - attractor.display_start_time;
                         if display_elapsed >= DISPLAY_DURATION {
+                            println!("  Attractor transitioning to Fading state after {:.1}s", display_elapsed);
+                            attractor.status = AttractorStatus::Fading;
+                            attractor.fade_start_time = get_time();
+                        } else if display_elapsed > DISPLAY_DURATION * 2.0 {
+                            // Safety mechanism: force transition if stuck in displaying for too long
+                            println!("  Safety reset: attractor stuck in displaying for {:.1}s, forcing fade", display_elapsed);
                             attractor.status = AttractorStatus::Fading;
                             attractor.fade_start_time = get_time();
                         }
@@ -1587,8 +1700,18 @@ async fn main() {
                         }
                     }
                 }
-                clear_background(BLACK);
-                image_buffer.fill([0, 0, 0, 255]);
+                
+                // Clear background and image buffer respecting current day/night mode
+                clear_background(if global_invert { WHITE } else { BLACK });
+                let fill_value = if global_invert { 255 } else { 0 };
+                image_buffer.fill([fill_value, fill_value, fill_value, 255]);
+                
+                // Ensure all attractors have the current global invert state
+                for attractor in attractors.iter_mut() {
+                    attractor.invert = global_invert;
+                    // Mark for full refresh to ensure proper rendering
+                    attractor.needs_full_refresh = true;
+                }
             }
             
             // RGB button click
@@ -1611,14 +1734,20 @@ async fn main() {
                         attractor.reset_with_random_params(paused);
                     }
                     
-                    // Clear the screen
-                    clear_background(if attractors[0].invert { WHITE } else { BLACK });
-                    let fill_value = if attractors[0].invert { 255 } else { 0 };
+                    // Clear the screen respecting current day/night mode
+                    clear_background(if global_invert { WHITE } else { BLACK });
+                    let fill_value = if global_invert { 255 } else { 0 };
                     for pixel in image_buffer.iter_mut() {
                         pixel[0] = fill_value;
                         pixel[1] = fill_value;
                         pixel[2] = fill_value;
                         pixel[3] = 255;
+                    }
+                    
+                    // Ensure all attractors have the current global invert state
+                    for attractor in attractors.iter_mut() {
+                        attractor.invert = global_invert;
+                        attractor.needs_full_refresh = true;
                     }
                 }
             }
@@ -1653,14 +1782,20 @@ async fn main() {
                     // Reset the red attractor with new parameters
                     attractors[0].reset_with_random_params(paused);
                     
-                    // Clear the screen
-                    clear_background(if attractors[0].invert { WHITE } else { BLACK });
-                    let fill_value = if attractors[0].invert { 255 } else { 0 };
+                    // Clear the screen respecting current day/night mode
+                    clear_background(if global_invert { WHITE } else { BLACK });
+                    let fill_value = if global_invert { 255 } else { 0 };
                     for pixel in image_buffer.iter_mut() {
                         pixel[0] = fill_value;
                         pixel[1] = fill_value;
                         pixel[2] = fill_value;
                         pixel[3] = 255;
+                    }
+                    
+                    // Ensure all attractors have the current global invert state
+                    for attractor in attractors.iter_mut() {
+                        attractor.invert = global_invert;
+                        attractor.needs_full_refresh = true;
                     }
                 }
             }
@@ -1712,14 +1847,20 @@ async fn main() {
                         attractor.calculate_scales();
                     }
                     
-                    // Clear the screen
-                    clear_background(if attractors[0].invert { WHITE } else { BLACK });
-                    let fill_value = if attractors[0].invert { 255 } else { 0 };
+                    // Clear the screen respecting current day/night mode
+                    clear_background(if global_invert { WHITE } else { BLACK });
+                    let fill_value = if global_invert { 255 } else { 0 };
                     for pixel in image_buffer.iter_mut() {
                         pixel[0] = fill_value;
                         pixel[1] = fill_value;
                         pixel[2] = fill_value;
                         pixel[3] = 255;
+                    }
+                    
+                    // Ensure all attractors have the current global invert state
+                    for attractor in attractors.iter_mut() {
+                        attractor.invert = global_invert;
+                        attractor.needs_full_refresh = true;
                     }
                 }
             }
@@ -1755,14 +1896,20 @@ async fn main() {
                     attractor.y = 0.1;
                 }
                 
-                // Clear the screen
-                clear_background(if attractors[0].invert { WHITE } else { BLACK });
-                let fill_value = if attractors[0].invert { 255 } else { 0 };
+                // Clear the screen respecting current day/night mode
+                clear_background(if global_invert { WHITE } else { BLACK });
+                let fill_value = if global_invert { 255 } else { 0 };
                 for pixel in image_buffer.iter_mut() {
                     pixel[0] = fill_value;
                     pixel[1] = fill_value;
                     pixel[2] = fill_value;
                     pixel[3] = 255;
+                }
+                
+                // Ensure all attractors have the current global invert state
+                for attractor in attractors.iter_mut() {
+                    attractor.invert = global_invert;
+                    attractor.needs_full_refresh = true;
                 }
             }
             
@@ -1777,8 +1924,15 @@ async fn main() {
                     attractor.changed_pixel_indices.clear();
                     attractor.nonzero_pixels = 0;
                     attractor.maxed_pixels = 0;
-                    // Force all pixels to be re-rendered with new inversion setting
-                    attractor.mark_all_pixels_changed();
+                    // Force attractors in Displaying mode back to Running so they start drawing immediately
+                    if attractor.status == AttractorStatus::Displaying {
+                        attractor.status = AttractorStatus::Running;
+                        attractor.start_time = get_time(); // Reset the timer
+                    }
+                    // Reset the empty steps counter
+                    attractor.consecutive_empty_steps = 0;
+                    // Mark for refresh
+                    attractor.needs_full_refresh = true;
                 }
                 let fill_value = if global_invert { 255 } else { 0 };
                 clear_background(if global_invert { WHITE } else { BLACK });
@@ -1949,6 +2103,9 @@ async fn main() {
             println!("  Iterations per frame: {}", iterations);
             for (i, attractor) in attractors.iter().enumerate() {
                 match attractor.status {
+                    AttractorStatus::Running => {
+                        println!("Attractor {} Running (frame {})", i, frame_count);
+                    }
                     AttractorStatus::Displaying => {
                         let remaining = DISPLAY_DURATION - (get_time() - attractor.display_start_time);
                         println!("Attractor {} Displaying: {:.1} seconds remaining", i, remaining);
@@ -1957,7 +2114,6 @@ async fn main() {
                         let remaining = FADE_DURATION - (get_time() - attractor.fade_start_time);
                         println!("Attractor {} Fading: {:.1} seconds remaining", i, remaining);
                     }
-                    _ => {}
                 }
             }
         }
