@@ -942,6 +942,8 @@ async fn main() {
         }
 
         // Handle input
+        // Q key for quit (only in native builds)
+        #[cfg(not(target_arch = "wasm32"))]
         if is_key_pressed(KeyCode::Q) {
             std::process::exit(0);
         }
@@ -1607,7 +1609,7 @@ async fn main() {
         
         // Draw Day/Night button with improved layout
         let day_button_rect = Rect::new(ui_padding, ui_y + 10.0 + button_height + row_spacing, 55.0, button_height);
-        let day_button_text = if attractors[0].invert { "Night" } else { "Day" };
+        let day_button_text = if global_invert { "Day" } else { "Night" };  // Shows current state
         draw_rectangle(day_button_rect.x, day_button_rect.y, day_button_rect.w, day_button_rect.h, button_bg_color);
         let text_y = day_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
         draw_text_improved(day_button_text, day_button_rect.x + 8.0, text_y, 16.0, text_color);
@@ -1631,10 +1633,14 @@ async fn main() {
         let text_y = next_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
         draw_text_improved("Next", next_button_rect.x + 8.0, text_y, 16.0, text_color);
         
-        // Draw Quit button with proper spacing
+        // Draw Quit button with proper spacing (only in native builds)
+        #[cfg(not(target_arch = "wasm32"))]
         let quit_button_rect = Rect::new(ui_padding + 55.0 + 65.0 + 35.0 + 45.0 + button_spacing * 4.0, ui_y + 10.0 + button_height + row_spacing, 45.0, button_height);
+        #[cfg(not(target_arch = "wasm32"))]
         draw_rectangle(quit_button_rect.x, quit_button_rect.y, quit_button_rect.w, quit_button_rect.h, button_bg_color);
+        #[cfg(not(target_arch = "wasm32"))]
         let text_y = quit_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        #[cfg(not(target_arch = "wasm32"))]
         draw_text_improved("Quit", quit_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Handle mouse clicks for buttons
@@ -1766,16 +1772,24 @@ async fn main() {
                     attractors[1].active = false;
                     attractors[2].active = false;
                     
-                    // Clear pixel data from inactive attractors
+                    // Clear pixel data and reset status of inactive attractors
                     attractors[1].pixels.fill(0);
                     attractors[1].changed_pixel_indices.clear();
                     attractors[1].nonzero_pixels = 0;
                     attractors[1].maxed_pixels = 0;
+                    attractors[1].status = AttractorStatus::Running;
+                    attractors[1].start_time = get_time();
+                    attractors[1].display_start_time = get_time();
+                    attractors[1].fade_start_time = get_time();
                     
                     attractors[2].pixels.fill(0);
                     attractors[2].changed_pixel_indices.clear();
                     attractors[2].nonzero_pixels = 0;
                     attractors[2].maxed_pixels = 0;
+                    attractors[2].status = AttractorStatus::Running;
+                    attractors[2].start_time = get_time();
+                    attractors[2].display_start_time = get_time();
+                    attractors[2].fade_start_time = get_time();
                     
                     // Reset the red attractor with new parameters
                     attractors[0].reset_with_random_params(paused);
@@ -2037,7 +2051,8 @@ async fn main() {
                 image_buffer.fill([fill_value, fill_value, fill_value, 255]);
             }
             
-            // Quit button click
+            // Quit button click (only in native builds)
+            #[cfg(not(target_arch = "wasm32"))]
             if quit_button_rect.contains(vec2(mouse_pos.0, mouse_pos.1)) {
                 std::process::exit(0);
             }
@@ -2100,6 +2115,11 @@ async fn main() {
                 pixel_update_time / elapsed * 100.0);
             println!("  Iterations per frame: {}", iterations);
             for (i, attractor) in attractors.iter().enumerate() {
+                // In monochrome mode, only show status for the active attractor (Red)
+                if color_state == ColorState::Monochrome && i != 0 {
+                    continue;
+                }
+                
                 match attractor.status {
                     AttractorStatus::Running => {
                         println!("Attractor {} Running (frame {})", i, frame_count);
