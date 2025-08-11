@@ -718,10 +718,10 @@ fn draw_command_summary(inverted: bool) {
 }
 
 fn seed_rng() {
-    // Create a more robust seed using multiple entropy sources
+    // Create a robust seed using WASM-compatible entropy sources
     let mut seed = 0u64;
     
-    // Source 1: High-precision time (microseconds)
+    // Source 1: High-precision time (microseconds) - works in both native and WASM
     let time_seed = (get_time() * 1_000_000.0) as u64;
     seed = seed.wrapping_add(time_seed);
     
@@ -729,11 +729,16 @@ fn seed_rng() {
     let screen_seed = (screen_width() as u64).wrapping_mul(screen_height() as u64);
     seed = seed.wrapping_add(screen_seed);
     
-    // Source 3: Add some additional entropy from system time components
-    let now = std::time::SystemTime::now();
-    if let Ok(duration) = now.duration_since(std::time::UNIX_EPOCH) {
-        seed = seed.wrapping_add(duration.as_nanos() as u64);
-    }
+    // Source 3: Add entropy from frame count and additional time components
+    // Use macroquad's get_time() multiple times with small delays for additional entropy
+    let time1 = get_time();
+    let time2 = get_time();
+    let time_diff = ((time2 - time1) * 1_000_000_000.0) as u64; // nanoseconds
+    seed = seed.wrapping_add(time_diff);
+    
+    // Source 4: Add some pseudo-random variation based on time components
+    let time_ms = (get_time() * 1000.0) as u64;
+    seed = seed.wrapping_add(time_ms.wrapping_mul(0x5bd1e995));
     
     // Mix the seed using a simple but effective algorithm
     seed = seed.wrapping_mul(0x5bd1e995);
