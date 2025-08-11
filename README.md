@@ -1,14 +1,16 @@
 # Pickover Attractor
 
-A Rust application using [macroquad](https://github.com/not-fl3/macroquad) to visualize Pickover attractors with multiple color channels, real-time parameter generation, and interactive controls. **Runs on both desktop and web browsers using WebAssembly!**
+A Rust application using [macroquad](https://github.com/not-fl3/macroquad) to visualize Pickover attractors with multiple color channels, real-time parameter generation, interactive controls, and beautiful symmetry patterns. **Runs on both desktop and web browsers using WebAssembly!**
 
 🌐 **Live Demo**: [https://dmaynard.github.io/pickover-attractor](https://dmaynard.github.io/pickover-attractor)
 
 ## Features
 
 - **Multiple Color Modes**: RGB (independent channels), Monochrome (grayscale), and Correlated (related channels)
+- **Day/Night Mode**: Toggle between light and dark themes with proper visual clearing
+- **Symmetry Patterns**: 4-fold, 6-fold, and 8-fold radial symmetry for stunning geometric patterns
 - **Real-time Parameter Generation**: Automatically generates interesting attractor parameters
-- **Interactive Controls**: UI for switching color modes and adjusting correlated deviation
+- **Interactive Controls**: UI for switching color modes, symmetry, and adjusting correlated deviation
 - **Performance Monitoring**: Real-time FPS and performance metrics
 - **Window Resizing**: Handles dynamic window resizing
 - **Automatic Reset**: Resets when attractors become saturated or stagnant
@@ -16,16 +18,27 @@ A Rust application using [macroquad](https://github.com/not-fl3/macroquad) to vi
 
 ## Controls
 
+### Keyboard Controls
 - **Space**: Generate new attractor parameters
-- **Q**: Quit the application (desktop only)
+- **I**: Toggle day/night mode (invert colors)
+- **M**: Cycle through color modes (RGB → Monochrome → Correlated)
+- **S**: Cycle through symmetry modes (None → 4-fold → 6-fold → 8-fold)
+- **R**: Toggle red channel on/off (RGB mode only)
+- **G**: Toggle green channel on/off (RGB mode only)
+- **B**: Toggle blue channel on/off (RGB mode only)
 - **Slash (/)**: Toggle help display
-- **Mouse**: Click and drag the correlated deviation slider (in correlated mode)
+- **Q**: Quit the application (desktop only)
 
-## Color Mo
+### Mouse Controls
+- **Left Click**: Click UI buttons for color mode, symmetry, day/night toggle, and next attractor
+- **Drag**: Adjust the correlated deviation slider (in correlated mode)
+
+## Color Modes
 
 ### RGB Mode
 - Each color channel (Red, Green, Blue) operates independently
 - Each channel has its own attractor parameters
+- Individual channels can be toggled on/off with R, G, B keys
 - Creates colorful, dynamic visualizations
 
 ### Monochrome Mode
@@ -38,6 +51,31 @@ A Rust application using [macroquad](https://github.com/not-fl3/macroquad) to vi
 - Adjustable deviation percentage (0-5%)
 - Creates harmonious, related color patterns
 
+## Symmetry Modes
+
+### No Symmetry
+- Shows the natural, organic form of the attractor
+- Best for studying the base mathematical behavior
+
+### 4-Fold Radial Symmetry
+- Creates 90-degree rotational patterns
+- Produces geometric, mandala-like designs
+
+### 6-Fold Radial Symmetry
+- Creates 60-degree rotational patterns
+- Generates snowflake-like crystalline structures
+
+### 8-Fold Radial Symmetry
+- Creates 45-degree rotational patterns
+- Produces complex, kaleidoscopic patterns
+
+## Day/Night Mode
+
+- **Day Mode**: Black background with bright attractor colors
+- **Night Mode**: White background with dark attractor colors
+- Seamlessly switches between modes without visual artifacts
+- All new attractors inherit the current mode setting
+
 ## Technical Details
 
 The application implements the Pickover attractor equations:
@@ -45,6 +83,8 @@ The application implements the Pickover attractor equations:
 - `y' = sin(a*x) + d*cos(a*y)`
 
 Where a, b, c, and d are parameters that determine the attractor's behavior.
+
+The symmetry calculations use high-precision floating-point arithmetic to ensure smooth, artifact-free patterns.
 
 ## Building and Running
 
@@ -72,25 +112,52 @@ cargo run --release
 ### Web Version (WebAssembly)
 
 #### Prerequisites
-- Rust and Cargo
-- `basic-http-server` (will be installed automatically by the build script)
+- Rust and Cargo installed on your system
+- A modern web browser (Chrome, Firefox, Safari, or Edge)
 
-#### Build and Run
+#### Build and Test Locally
+
+**Step 1: Build the WASM version**
 ```bash
-# Build the WASM version
-./build_macroquad_wasm.sh
+# Make the build script executable (first time only)
+chmod +x build_macroquad_wasm.sh
 
-# Run locally
+# Build the WebAssembly version
+./build_macroquad_wasm.sh
+```
+
+**Step 2: Start a local web server**
+
+*Option A: Using basic-http-server (recommended)*
+```bash
+# The build script should install this automatically
 basic-http-server .
 # Then open http://localhost:4000 in your browser
 ```
 
-#### Alternative using Python:
+*Option B: Using Python (if you have Python 3 installed)*
 ```bash
-# After building with ./build_macroquad_wasm.sh
 python3 -m http.server 4000
 # Then open http://localhost:4000 in your browser
 ```
+
+*Option C: Using Node.js (if you have Node.js installed)*
+```bash
+npx http-server . -p 4000
+# Then open http://localhost:4000 in your browser
+```
+
+**Step 3: Test in your browser**
+- Open your web browser
+- Navigate to `http://localhost:4000`
+- You should see the Pickover Attractor running in your browser!
+- Try the keyboard controls: Space (new attractor), I (day/night), M (color modes), S (symmetry)
+
+#### Troubleshooting
+- **Port 4000 already in use**: Try a different port (e.g., `basic-http-server . --port 4001`)
+- **Build fails**: Make sure you have the latest Rust toolchain (`rustup update`)
+- **WASM doesn't load**: Check browser console for errors and ensure you're using a modern browser
+- **Performance issues**: Close other browser tabs and ensure hardware acceleration is enabled
 
 ## Performance
 
