@@ -56,11 +56,53 @@ const FADE_DURATION: f64 = 4.0;
 /// Threshold percentage of maxed pixels to trigger reset (0.15 = 15%)
 const SATURATION_THRESHOLD: f64 = 0.15;
 
-/// Default percentage deviation for correlated mode parameters (0.002 = 0.2%)
-const DEFAULT_CORRELATED_DEVIATION: f64 = 0.002;
+
 
 /// Height reserved for UI elements at the bottom of the screen (pixels)
 const UI_AREA_HEIGHT: f32 = 100.0;
+
+// =============================================================================
+// UI Layout Constants
+// =============================================================================
+
+/// Padding around UI elements for better spacing
+const UI_PADDING: f32 = 15.0;
+
+/// Height of UI buttons
+const BUTTON_HEIGHT: f32 = 28.0;
+
+/// Spacing between buttons
+const BUTTON_SPACING: f32 = 8.0;
+
+/// Spacing between rows of buttons
+const ROW_SPACING: f32 = 12.0;
+
+/// Width of the RGB button
+const RGB_BUTTON_WIDTH: f32 = 85.0;
+
+/// Width of the Monochrome button
+const MONO_BUTTON_WIDTH: f32 = 85.0;
+
+/// Width of the Correlated button
+const CORR_BUTTON_WIDTH: f32 = 85.0;
+
+/// Width of the Symmetry button
+const SYMMETRY_BUTTON_WIDTH: f32 = 75.0;
+
+/// Width of the Day/Night button
+const DAY_BUTTON_WIDTH: f32 = 55.0;
+
+/// Width of the Pause/Resume button
+const PAUSE_BUTTON_WIDTH: f32 = 65.0;
+
+/// Width of the Help button
+const HELP_BUTTON_WIDTH: f32 = 35.0;
+
+/// Width of the Next button
+const NEXT_BUTTON_WIDTH: f32 = 45.0;
+
+/// Width of the Quit button
+const QUIT_BUTTON_WIDTH: f32 = 45.0;
 
 // =============================================================================
 // Core Data Types and Enums
@@ -152,8 +194,7 @@ struct PickoverSystem {
     changed_pixel_indices: Vec<usize>,
     /// Flag indicating when the entire image needs to be refreshed
     needs_full_refresh: bool,
-    /// Pre-allocated buffer for symmetry transformation calculations
-    symmetry_buffer: Vec<(i32, i32)>,
+
     /// Width of the attractor's drawing area in pixels
     width: usize,
     /// Height of the attractor's drawing area in pixels
@@ -378,31 +419,7 @@ impl PickoverSystem {
         pixels
     }
 
-    /// Legacy method for generating symmetric pixel coordinates (i32 version)
-    /// 
-    /// This method is maintained for backward compatibility but delegates to
-    /// the high-precision f64 version to ensure consistent behavior.
-    /// 
-    /// # Arguments
-    /// * `screen_x` - Screen x-coordinate
-    /// * `screen_y` - Screen y-coordinate
-    /// 
-    /// # Returns
-    /// A vector of pixel coordinates including the original point and all symmetric copies
-    fn get_symmetric_pixels(&self, screen_x: i32, screen_y: i32) -> Vec<(i32, i32)> {
-        self.get_symmetric_pixels_f64(screen_x as f64, screen_y as f64)
-    }
 
-    // Extract common image clearing code
-    fn clear_image(&mut self, image_data: &mut [[u8; 4]], fill_value: u8) {
-        image_data.iter_mut().for_each(|pixel| {
-            pixel[0] = fill_value;
-            pixel[1] = fill_value;
-            pixel[2] = fill_value;
-            pixel[3] = 255;
-        });
-        self.changed_pixel_indices.clear();
-    }
 
     /// Performs one iteration step of the attractor simulation
     /// 
@@ -533,7 +550,6 @@ impl PickoverSystem {
             pixels: Vec::new(),
             changed_pixel_indices: Vec::new(),
             needs_full_refresh: false,
-            symmetry_buffer: Vec::new(),
             width: 0, height: 0,
             nonzero_pixels: 0,
             maxed_pixels: 0,
@@ -688,7 +704,6 @@ impl PickoverSystem {
             pixels: vec![0; width * height],
             changed_pixel_indices: Vec::new(),
             needs_full_refresh: false,
-            symmetry_buffer: Vec::new(),
             width,
             height,
             nonzero_pixels: 0,
@@ -1740,7 +1755,7 @@ async fn main() {
                 // When red attractor starts fading, ensure all channels are in sync
                 if red_attractor.status == AttractorStatus::Fading {
                     // Ensure all RGB channels have the same values before starting fade
-                    for (idx, pixel) in image_buffer.iter_mut().enumerate() {
+                    for (_idx, pixel) in image_buffer.iter_mut().enumerate() {
                         let current_value = pixel[0]; // Use red channel as reference
                         pixel[1] = current_value;
                         pixel[2] = current_value;
@@ -1755,8 +1770,8 @@ async fn main() {
                     }
                     if attractor.needs_full_refresh {
                         // Full refresh needed (e.g., after inversion)
-                        for (idx, pixel) in image_buffer.iter_mut().enumerate() {
-                            let intensity = attractor.pixels[idx];
+                        for (_idx, pixel) in image_buffer.iter_mut().enumerate() {
+                            let intensity = attractor.pixels[_idx];
                             let pixel_value = if attractor.invert { 255 - intensity } else { intensity };
                             match attractor.channel {
                                 ColorChannel::Red => pixel[0] = pixel_value,
@@ -1787,8 +1802,8 @@ async fn main() {
                     }
                     if attractor.needs_full_refresh {
                         // Full refresh needed (e.g., after inversion)
-                        for (idx, pixel) in image_buffer.iter_mut().enumerate() {
-                            let intensity = attractor.pixels[idx];
+                        for (_idx, pixel) in image_buffer.iter_mut().enumerate() {
+                            let intensity = attractor.pixels[_idx];
                             let pixel_value = if attractor.invert { 255 - intensity } else { intensity };
                             match attractor.channel {
                                 ColorChannel::Red => pixel[0] = pixel_value,
@@ -1838,13 +1853,10 @@ async fn main() {
         // UI Rendering and Button Layout
         // =============================================================================
         
-        let ui_padding = 15.0;  // Increased padding for better breathing room
-        let button_height = 28.0;  // Slightly taller buttons
-        let button_spacing = 8.0;  // Space between buttons
-        let row_spacing = 12.0;  // Space between rows
+        // Use constants for consistent UI layout
         
         // Draw RGB button with improved layout
-        let rgb_button_rect = Rect::new(ui_padding, ui_y + 10.0, 85.0, button_height);
+        let rgb_button_rect = Rect::new(UI_PADDING, ui_y + 10.0, RGB_BUTTON_WIDTH, BUTTON_HEIGHT);
         let rgb_button_color = if color_state == ColorState::RGB { 
             button_active_color
         } else { 
@@ -1852,33 +1864,33 @@ async fn main() {
         };
         draw_rectangle(rgb_button_rect.x, rgb_button_rect.y, rgb_button_rect.w, rgb_button_rect.h, rgb_button_color);
         let rgb_button_text = if attractors[0].invert { "CYM" } else { "RGB" };
-        let text_y = rgb_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = rgb_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved(rgb_button_text, rgb_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Monochrome button with proper spacing
-        let mono_button_rect = Rect::new(ui_padding + 85.0 + button_spacing, ui_y + 10.0, 85.0, button_height);
+        let mono_button_rect = Rect::new(UI_PADDING + RGB_BUTTON_WIDTH + BUTTON_SPACING, ui_y + 10.0, MONO_BUTTON_WIDTH, BUTTON_HEIGHT);
         let mono_button_color = if color_state == ColorState::Monochrome { 
             button_active_color
         } else { 
             button_bg_color
         };
         draw_rectangle(mono_button_rect.x, mono_button_rect.y, mono_button_rect.w, mono_button_rect.h, mono_button_color);
-        let text_y = mono_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = mono_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved("Monochrome", mono_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Correlated button with proper spacing
-        let corr_button_rect = Rect::new(ui_padding + 85.0 + 85.0 + button_spacing * 2.0, ui_y + 10.0, 85.0, button_height);
+        let corr_button_rect = Rect::new(UI_PADDING + RGB_BUTTON_WIDTH + MONO_BUTTON_WIDTH + BUTTON_SPACING * 2.0, ui_y + 10.0, CORR_BUTTON_WIDTH, BUTTON_HEIGHT);
         let corr_button_color = if color_state == ColorState::Correlated { 
             button_active_color
         } else { 
             button_bg_color
         };
         draw_rectangle(corr_button_rect.x, corr_button_rect.y, corr_button_rect.w, corr_button_rect.h, corr_button_color);
-        let text_y = corr_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = corr_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved("Correlated", corr_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Symmetry button with proper spacing
-        let symmetry_button_rect = Rect::new(ui_padding + 85.0 + 85.0 + 85.0 + button_spacing * 3.0, ui_y + 10.0, 75.0, button_height);
+        let symmetry_button_rect = Rect::new(UI_PADDING + RGB_BUTTON_WIDTH + MONO_BUTTON_WIDTH + CORR_BUTTON_WIDTH + BUTTON_SPACING * 3.0, ui_y + 10.0, SYMMETRY_BUTTON_WIDTH, BUTTON_HEIGHT);
         let symmetry_button_color = if symmetry != SymmetryType::None { 
             button_active_color
         } else { 
@@ -1886,42 +1898,42 @@ async fn main() {
         };
         draw_rectangle(symmetry_button_rect.x, symmetry_button_rect.y, symmetry_button_rect.w, symmetry_button_rect.h, symmetry_button_color);
         let symmetry_text = get_symmetry_display_name(symmetry);
-        let text_y = symmetry_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = symmetry_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved(symmetry_text, symmetry_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Day/Night button with improved layout
-        let day_button_rect = Rect::new(ui_padding, ui_y + 10.0 + button_height + row_spacing, 55.0, button_height);
+        let day_button_rect = Rect::new(UI_PADDING, ui_y + 10.0 + BUTTON_HEIGHT + ROW_SPACING, DAY_BUTTON_WIDTH, BUTTON_HEIGHT);
         let day_button_text = if global_invert { "Day" } else { "Night" };  // Shows current state
         draw_rectangle(day_button_rect.x, day_button_rect.y, day_button_rect.w, day_button_rect.h, button_bg_color);
-        let text_y = day_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = day_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved(day_button_text, day_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Pause/Resume button with proper spacing
-        let pause_button_rect = Rect::new(ui_padding + 55.0 + button_spacing, ui_y + 10.0 + button_height + row_spacing, 65.0, button_height);
+        let pause_button_rect = Rect::new(UI_PADDING + DAY_BUTTON_WIDTH + BUTTON_SPACING, ui_y + 10.0 + BUTTON_HEIGHT + ROW_SPACING, PAUSE_BUTTON_WIDTH, BUTTON_HEIGHT);
         let pause_button_text = if paused { "Resume" } else { "Pause" };
         draw_rectangle(pause_button_rect.x, pause_button_rect.y, pause_button_rect.w, pause_button_rect.h, button_bg_color);
-        let text_y = pause_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = pause_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved(pause_button_text, pause_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Help button with proper spacing
-        let help_button_rect = Rect::new(ui_padding + 55.0 + 65.0 + button_spacing * 2.0, ui_y + 10.0 + button_height + row_spacing, 35.0, button_height);
+        let help_button_rect = Rect::new(UI_PADDING + DAY_BUTTON_WIDTH + PAUSE_BUTTON_WIDTH + BUTTON_SPACING * 2.0, ui_y + 10.0 + BUTTON_HEIGHT + ROW_SPACING, HELP_BUTTON_WIDTH, BUTTON_HEIGHT);
         draw_rectangle(help_button_rect.x, help_button_rect.y, help_button_rect.w, help_button_rect.h, button_bg_color);
-        let text_y = help_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = help_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved("?", help_button_rect.x + 12.0, text_y, 16.0, text_color);
         
         // Draw Next button with proper spacing
-        let next_button_rect = Rect::new(ui_padding + 55.0 + 65.0 + 35.0 + button_spacing * 3.0, ui_y + 10.0 + button_height + row_spacing, 45.0, button_height);
+        let next_button_rect = Rect::new(UI_PADDING + DAY_BUTTON_WIDTH + PAUSE_BUTTON_WIDTH + HELP_BUTTON_WIDTH + BUTTON_SPACING * 3.0, ui_y + 10.0 + BUTTON_HEIGHT + ROW_SPACING, NEXT_BUTTON_WIDTH, BUTTON_HEIGHT);
         draw_rectangle(next_button_rect.x, next_button_rect.y, next_button_rect.w, next_button_rect.h, button_bg_color);
-        let text_y = next_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = next_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved("Next", next_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Quit button with proper spacing (only in native builds)
         #[cfg(not(target_arch = "wasm32"))]
-        let quit_button_rect = Rect::new(ui_padding + 55.0 + 65.0 + 35.0 + 45.0 + button_spacing * 4.0, ui_y + 10.0 + button_height + row_spacing, 45.0, button_height);
+        let quit_button_rect = Rect::new(UI_PADDING + DAY_BUTTON_WIDTH + PAUSE_BUTTON_WIDTH + HELP_BUTTON_WIDTH + NEXT_BUTTON_WIDTH + BUTTON_SPACING * 4.0, ui_y + 10.0 + BUTTON_HEIGHT + ROW_SPACING, QUIT_BUTTON_WIDTH, BUTTON_HEIGHT);
         #[cfg(not(target_arch = "wasm32"))]
         draw_rectangle(quit_button_rect.x, quit_button_rect.y, quit_button_rect.w, quit_button_rect.h, button_bg_color);
         #[cfg(not(target_arch = "wasm32"))]
-        let text_y = quit_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = quit_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         #[cfg(not(target_arch = "wasm32"))]
         draw_text_improved("Quit", quit_button_rect.x + 8.0, text_y, 16.0, text_color);
         
