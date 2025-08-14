@@ -36,7 +36,6 @@
 //! This project is open source. See LICENSE file for details.
 
 use macroquad::prelude::*;
-use macroquad::ui::{hash, root_ui};
 
 // =============================================================================
 // Application Configuration Constants
@@ -249,7 +248,14 @@ fn get_symmetry_tables() -> &'static SymmetryLookupTables {
 }
 
 impl PickoverSystem {
-    // Helper function to apply deviation to a parameter
+    /// Applies a random deviation to a parameter value for correlated mode
+    /// 
+    /// # Arguments
+    /// * `base_value` - The original parameter value
+    /// * `deviation_percent` - The percentage deviation to apply (0.0 = no change)
+    /// 
+    /// # Returns
+    /// A new value with random deviation applied
     fn apply_deviation(base_value: f64, deviation_percent: f64) -> f64 {
         if deviation_percent == 0.0 {
             base_value
@@ -259,14 +265,32 @@ impl PickoverSystem {
         }
     }
 
-    // Extract attractor equation into its own function
+    /// Calculates the next point in the Pickover attractor iteration
+    /// 
+    /// This is the core mathematical function that defines the attractor behavior.
+    /// The equations are:
+    /// - x_{n+1} = sin(b * y_n) - c * sin(b * x_n)
+    /// - y_{n+1} = sin(a * x_n) + d * cos(a * y_n)
+    /// 
+    /// # Arguments
+    /// * `x` - Current x-coordinate
+    /// * `y` - Current y-coordinate
+    /// 
+    /// # Returns
+    /// A tuple containing the next (x, y) coordinates
     fn next_point(&self, x: f64, y: f64) -> (f64, f64) {
         let new_x = (self.b * y).sin() - self.c * (self.b * x).sin();
         let new_y = (self.a * x).sin() + self.d * (self.a * y).cos();
         (new_x, new_y)
     }
 
-    // Get the effective drawing bounds (square for symmetry modes, full rectangle for none)
+    /// Gets the effective drawing bounds for the current symmetry mode
+    /// 
+    /// For symmetry modes, returns a centered square to ensure proper
+    /// rotational transformations. For no symmetry, returns the full window.
+    /// 
+    /// # Returns
+    /// A tuple (min_x, min_y, max_x, max_y) defining the drawing area
     fn get_drawing_bounds(&self) -> (f64, f64, f64, f64) {
         if self.symmetry == SymmetryType::None {
             // Use full window for no symmetry
@@ -280,7 +304,17 @@ impl PickoverSystem {
         }
     }
 
-    // Generate symmetric pixel coordinates for a given point (f64 version for maximum precision)
+    /// Generates symmetric pixel coordinates for a given point with maximum precision
+    /// 
+    /// This is the high-precision version that performs all calculations in f64
+    /// to avoid visual artifacts from precision loss during symmetry transformations.
+    /// 
+    /// # Arguments
+    /// * `screen_x` - Screen x-coordinate (f64 for precision)
+    /// * `screen_y` - Screen y-coordinate (f64 for precision)
+    /// 
+    /// # Returns
+    /// A vector of pixel coordinates including the original point and all symmetric copies
     fn get_symmetric_pixels_f64(&self, screen_x: f64, screen_y: f64) -> Vec<(i32, i32)> {
         let mut pixels = Vec::new();
         
@@ -344,7 +378,17 @@ impl PickoverSystem {
         pixels
     }
 
-    // Generate symmetric pixel coordinates for a given point (legacy i32 version)
+    /// Legacy method for generating symmetric pixel coordinates (i32 version)
+    /// 
+    /// This method is maintained for backward compatibility but delegates to
+    /// the high-precision f64 version to ensure consistent behavior.
+    /// 
+    /// # Arguments
+    /// * `screen_x` - Screen x-coordinate
+    /// * `screen_y` - Screen y-coordinate
+    /// 
+    /// # Returns
+    /// A vector of pixel coordinates including the original point and all symmetric copies
     fn get_symmetric_pixels(&self, screen_x: i32, screen_y: i32) -> Vec<(i32, i32)> {
         self.get_symmetric_pixels_f64(screen_x as f64, screen_y as f64)
     }
@@ -360,6 +404,14 @@ impl PickoverSystem {
         self.changed_pixel_indices.clear();
     }
 
+    /// Performs one iteration step of the attractor simulation
+    /// 
+    /// This method:
+    /// 1. Calculates the next point using the attractor equations
+    /// 2. Converts to screen coordinates
+    /// 3. Applies symmetry transformations if enabled
+    /// 4. Updates pixel values and tracks changes
+    /// 5. Maintains statistics for performance monitoring
     fn step(&mut self) {
         let (new_x, new_y) = self.next_point(self.x, self.y);
         self.x = new_x;
@@ -593,6 +645,20 @@ impl PickoverSystem {
         }
     }
 
+    /// Creates a new Pickover attractor system with the specified parameters
+    /// 
+    /// # Arguments
+    /// * `x` - Initial x-coordinate for the attractor
+    /// * `y` - Initial y-coordinate for the attractor
+    /// * `width` - Width of the drawing area in pixels
+    /// * `height` - Height of the drawing area in pixels
+    /// * `channel` - Which color channel this attractor controls
+    /// * `paused` - Whether the system is in paused state
+    /// * `color_state` - Current color processing mode
+    /// * `invert` - Whether to invert colors (day/night mode)
+    /// 
+    /// # Returns
+    /// A new PickoverSystem instance with generated parameters and initialized state
     fn new(x: f64, y: f64, width: usize, height: usize, channel: ColorChannel, paused: bool, color_state: ColorState, invert: bool) -> Self {
         let (a, b, c, d) = Self::generate_interesting_params(paused);
         let current_time = get_time();
@@ -632,6 +698,13 @@ impl PickoverSystem {
         system
     }
 
+    /// Calculates optimal scaling factors for the attractor visualization
+    /// 
+    /// This method runs the attractor for many iterations to determine the
+    /// natural bounds of the pattern, then calculates scaling factors to
+    /// efficiently fill the available screen space.
+    /// 
+    /// The method handles different scaling strategies for symmetry vs. non-symmetry modes.
     fn calculate_scales(&mut self) {
         let mut minx = f64::MAX;
         let mut maxx = f64::MIN;
@@ -843,6 +916,15 @@ fn draw_command_summary(inverted: bool) {
     draw_text_improved("Q     - Quit program", x_pos, y_start + line_height * 10.0, 20.0, text_color);
 }
 
+/// Seeds the random number generator with entropy from multiple sources
+/// 
+/// This function creates a robust seed using WASM-compatible entropy sources:
+/// - High-precision time (microseconds)
+/// - Screen dimensions
+/// - Time differences and variations
+/// - Pseudo-random mixing algorithms
+/// 
+/// The resulting seed ensures unique attractor parameters on each run.
 fn seed_rng() {
     // Create a robust seed using WASM-compatible entropy sources
     let mut seed = 0u64;
@@ -876,13 +958,29 @@ fn seed_rng() {
     rand::srand(seed);
 }
 
-// Helper function for better text rendering
+/// Improved text rendering function that avoids rendering artifacts
+/// 
+/// This wrapper around macroquad's draw_text function ensures consistent
+/// text rendering without offset issues that could cause visual artifacts.
+/// 
+/// # Arguments
+/// * `text` - The text string to render
+/// * `x` - X-coordinate for text placement
+/// * `y` - Y-coordinate for text placement
+/// * `font_size` - Size of the font
+/// * `color` - Color of the text
 fn draw_text_improved(text: &str, x: f32, y: f32, font_size: f32, color: Color) {
     // Draw text without offset to avoid rendering artifacts
     draw_text(text, x, y, font_size, color);
 }
 
-// Helper function to get display name for symmetry types
+/// Gets the user-friendly display name for a symmetry type
+/// 
+/// # Arguments
+/// * `symmetry` - The symmetry type to get the name for
+/// 
+/// # Returns
+/// A human-readable string representation of the symmetry type
 fn get_symmetry_display_name(symmetry: SymmetryType) -> &'static str {
     match symmetry {
         SymmetryType::None => "Symmetry",
@@ -892,13 +990,27 @@ fn get_symmetry_display_name(symmetry: SymmetryType) -> &'static str {
     }
 }
 
-// Helper function to generate random correlation percentage (0-1%)
+/// Generates a random correlation percentage for correlated color mode
+/// 
+/// # Returns
+/// A random value between 0.0 and 0.01 (0% to 1%) representing
+/// the deviation percentage for correlated attractor parameters
 fn generate_random_correlation() -> f64 {
     rand::gen_range(0.0, 1.0) / 100.0  // Convert to percentage (0-0.01)
 }
 
 
 
+/// Main application entry point
+/// 
+/// This function initializes the Pickover attractor visualization system and runs
+/// the main game loop. It handles:
+/// - Random number generator seeding
+/// - Symmetry lookup table initialization
+/// - Attractor system creation and initialization
+/// - Main rendering and update loop
+/// - User input handling
+/// - Window resize management
 #[macroquad::main(window_conf)]
 async fn main() {
     seed_rng();  // Seed the RNG with current timestamp
