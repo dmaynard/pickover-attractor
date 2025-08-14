@@ -428,12 +428,15 @@ impl PickoverSystem {
         let symmetric_pixels = self.get_symmetric_pixels_f64(screen_x_f64, screen_y_f64);
         let total_symmetric_pixels = symmetric_pixels.len();
         
-        // Plot all symmetric pixels
+        // Plot all symmetric pixels with safety bounds checking
         let mut pixels_plotted_this_step = 0;
         
         for (px, py) in symmetric_pixels {
+            // Safety check: ensure coordinates are within valid bounds
             if px >= 0 && px < self.width as i32 && py >= 0 && py < self.height as i32 {
                 let idx = py as usize * self.width + px as usize;
+                
+                // Safety check: ensure index is within pixel array bounds
                 if idx < self.pixels.len() {
                     let old_value = self.pixels[idx];
                     if old_value == 0 {
@@ -455,7 +458,15 @@ impl PickoverSystem {
                         self.changed_pixel_indices.push(idx);
                         pixels_plotted_this_step += 1;
                     }
+                } else {
+                    // Log out-of-bounds access for debugging (only in debug builds)
+                    #[cfg(debug_assertions)]
+                    eprintln!("Warning: Pixel index {} out of bounds (max: {})", idx, self.pixels.len());
                 }
+            } else {
+                // Log out-of-bounds coordinates for debugging (only in debug builds)
+                #[cfg(debug_assertions)]
+                eprintln!("Warning: Coordinates ({}, {}) out of bounds ({}, {})", px, py, self.width, self.height);
             }
         }
         
@@ -663,7 +674,7 @@ impl PickoverSystem {
         let (a, b, c, d) = Self::generate_interesting_params(paused);
         let current_time = get_time();
         
-        let mut system = Self {
+        let system = Self {
             x,
             y,
             a,
@@ -1030,7 +1041,7 @@ async fn main() {
     let attractor_h = (h as f32 - UI_AREA_HEIGHT) as usize;  // Reserve space for UI
     let mut paused = false;
     let mut show_help = false;
-    let mut monochrome = false;  // Global monochrome mode flag
+    let monochrome = false;  // Global monochrome mode flag
     let mut color_state = ColorState::Monochrome;  // Current color state
     let mut shared_params = (0.0, 0.0, 0.0, 0.0);  // Shared parameters for correlated mode
     // Removed correlated_deviation slider - now using random values between 0-1%
@@ -1081,6 +1092,10 @@ async fn main() {
     }
 
     loop {
+        // =============================================================================
+        // Window Resize Handling
+        // =============================================================================
+        
         // Handle window resize
         let current_w = screen_width() as usize;
         let current_h = screen_height() as usize;
@@ -1186,6 +1201,10 @@ async fn main() {
             clear_background(if attractors[0].invert { WHITE } else { BLACK });
         }
 
+        // =============================================================================
+        // Input Handling and Event Processing
+        // =============================================================================
+        
         // Handle input
         // Q key for quit (only in native builds)
         #[cfg(not(target_arch = "wasm32"))]
@@ -1488,6 +1507,10 @@ async fn main() {
             }
         }
 
+        // =============================================================================
+        // Attractor Simulation and State Management
+        // =============================================================================
+        
         if !paused {
             iterations = 0;
             let mut needs_correlated_reset = false;
@@ -1646,6 +1669,10 @@ async fn main() {
             }
         }
 
+        // =============================================================================
+        // Image Buffer Updates and Rendering
+        // =============================================================================
+        
         let pixel_start = get_time();
         let image_data = image.get_image_data_mut();
 
@@ -1683,8 +1710,8 @@ async fn main() {
                     // Normal operation - update from attractor's pixel data
                     if red_attractor.needs_full_refresh {
                         // Full refresh needed (e.g., after inversion)
-                        for (idx, pixel) in image_buffer.iter_mut().enumerate() {
-                            let intensity = red_attractor.pixels[idx];
+                        for (_idx, pixel) in image_buffer.iter_mut().enumerate() {
+                            let intensity = red_attractor.pixels[_idx];
                             let pixel_value = if red_attractor.invert { 255 - intensity } else { intensity };
                             pixel[0] = pixel_value;
                             pixel[1] = pixel_value;
@@ -1692,13 +1719,19 @@ async fn main() {
                         }
                         red_attractor.clear_full_refresh_flag();
                     } else {
-                        // Only update changed pixels
+                        // Only update changed pixels with bounds checking
                         for &idx in &red_attractor.changed_pixel_indices {
-                            let pixel_value = if red_attractor.invert { 255 - red_attractor.pixels[idx] } else { red_attractor.pixels[idx] };
-                            // Ensure all RGB channels have the same value to maintain monochrome appearance
-                            image_buffer[idx][0] = pixel_value;
-                            image_buffer[idx][1] = pixel_value;
-                            image_buffer[idx][2] = pixel_value;
+                            // Safety check: ensure index is within bounds
+                            if idx < image_buffer.len() && idx < red_attractor.pixels.len() {
+                                let pixel_value = if red_attractor.invert { 255 - red_attractor.pixels[idx] } else { red_attractor.pixels[idx] };
+                                // Ensure all RGB channels have the same value to maintain monochrome appearance
+                                image_buffer[idx][0] = pixel_value;
+                                image_buffer[idx][1] = pixel_value;
+                                image_buffer[idx][2] = pixel_value;
+                            } else {
+                                #[cfg(debug_assertions)]
+                                eprintln!("Warning: Image buffer index {} out of bounds", idx);
+                            }
                         }
                         red_attractor.changed_pixel_indices.clear();
                     }
@@ -1795,12 +1828,16 @@ async fn main() {
         
         // Enhanced UI color palette - modern dark theme
         let text_color = Color::new(0.95, 0.95, 0.95, 1.0);  // Slightly off-white for better readability
-        let label_color = Color::new(0.8, 0.8, 0.8, 1.0);    // Slightly dimmer for labels
+        let _label_color = Color::new(0.8, 0.8, 0.8, 1.0);    // Slightly dimmer for labels
         let button_bg_color = Color::new(0.15, 0.15, 0.18, 0.95);  // Dark blue-gray background
         let button_active_color = Color::new(0.25, 0.25, 0.35, 0.95);  // Active button color
-        let button_hover_color = Color::new(0.2, 0.2, 0.25, 0.95);  // Hover state color
+        let _button_hover_color = Color::new(0.2, 0.2, 0.25, 0.95);  // Hover state color
         
         // Improved spacing and layout
+        // =============================================================================
+        // UI Rendering and Button Layout
+        // =============================================================================
+        
         let ui_padding = 15.0;  // Increased padding for better breathing room
         let button_height = 28.0;  // Slightly taller buttons
         let button_spacing = 8.0;  // Space between buttons
@@ -2340,6 +2377,10 @@ async fn main() {
         }
 
         frame_count += 1;
+        // =============================================================================
+        // Performance Monitoring and Debug Output
+        // =============================================================================
+        
         if frame_count % 60 == 0 && !paused {
             let current_time = get_time();
             let elapsed = current_time - last_fps_time;
