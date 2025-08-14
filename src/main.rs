@@ -1,21 +1,84 @@
+//! # Pickover Attractor Visualizer
+//! 
+//! A real-time visualization of Pickover attractors using the Macroquad game framework.
+//! This application generates and displays chaotic mathematical patterns based on the
+//! Pickover attractor equations, with support for multiple color modes, symmetry
+//! transformations, and day/night theme switching.
+//! 
+//! ## Features
+//! - Real-time attractor generation and visualization
+//! - Multiple color modes: RGB, Monochrome, and Correlated
+//! - Symmetry transformations: 4-fold, 6-fold, and 8-fold radial symmetry
+//! - Day/Night theme switching with color inversion
+//! - Automatic attractor lifecycle management
+//! - Cross-platform support (native and WebAssembly)
+//! 
+//! ## Mathematical Background
+//! The Pickover attractor is defined by the iterative equations:
+//! ```
+//! x_{n+1} = sin(b * y_n) - c * sin(b * x_n)
+//! y_{n+1} = sin(a * x_n) + d * cos(a * y_n)
+//! ```
+//! where a, b, c, and d are parameters that determine the pattern's behavior.
+//! 
+//! ## Architecture
+//! This application uses a state machine pattern for attractor lifecycle management:
+//! - **Running**: Actively calculating new points and updating the display
+//! - **Displaying**: Showing the current state without updates
+//! - **Fading**: Gradually fading out the current state
+//! 
+//! ## Performance Considerations
+//! - Efficient pixel update tracking using change indices
+//! - Pre-calculated symmetry transformation tables
+//! - Optimized rendering with full refresh flags
+//! 
+//! ## License
+//! This project is open source. See LICENSE file for details.
+
 use macroquad::prelude::*;
 use macroquad::ui::{hash, root_ui};
 
-const SCALE: f64 = 120.0;  // Adjusted scale for better visibility
-const MAX_ATTRACTOR_RUNTIME: f64 = 60.0;  // Maximum time in seconds before forcing a reset
-const DISPLAY_DURATION: f64 = 10.0;  // Time to display the attractor in seconds
-const FADE_DURATION: f64 = 4.0;  // Time to fade out the attractor in seconds
-const SATURATION_THRESHOLD: f64 = 0.15;  // Reset when 15% of active pixels are maxed out
-const DEFAULT_CORRELATED_DEVIATION: f64 = 0.002;  // Default percentage deviation for correlated mode parameters (0.002 = 0.2% deviation)
-const UI_AREA_HEIGHT: f32 = 100.0;  // Height reserved for UI elements at the bottom (increased from 75.0)
+// =============================================================================
+// Application Configuration Constants
+// =============================================================================
 
+/// Scale factor for attractor visualization (higher values = more zoomed in)
+const SCALE: f64 = 120.0;
+
+/// Maximum runtime for an attractor before forcing a reset (seconds)
+const MAX_ATTRACTOR_RUNTIME: f64 = 60.0;
+
+/// Duration to display the attractor without updates (seconds)
+const DISPLAY_DURATION: f64 = 10.0;
+
+/// Duration for the fade-out effect (seconds)
+const FADE_DURATION: f64 = 4.0;
+
+/// Threshold percentage of maxed pixels to trigger reset (0.15 = 15%)
+const SATURATION_THRESHOLD: f64 = 0.15;
+
+/// Default percentage deviation for correlated mode parameters (0.002 = 0.2%)
+const DEFAULT_CORRELATED_DEVIATION: f64 = 0.002;
+
+/// Height reserved for UI elements at the bottom of the screen (pixels)
+const UI_AREA_HEIGHT: f32 = 100.0;
+
+// =============================================================================
+// Core Data Types and Enums
+// =============================================================================
+
+/// Represents the current lifecycle state of an attractor
 #[derive(PartialEq, Clone)]
 enum AttractorStatus {
-    Running,    // Actively calculating new points
-    Displaying, // Showing the current state without updates
-    Fading,     // Gradually fading out the current state
+    /// Actively calculating new points and updating the display
+    Running,
+    /// Showing the current state without updates (static display)
+    Displaying,
+    /// Gradually fading out the current state before reset
+    Fading,
 }
 
+/// Represents individual color channels for RGB processing
 #[derive(Clone, Copy, Debug)]
 enum ColorChannel {
     Red,
@@ -23,59 +86,129 @@ enum ColorChannel {
     Blue,
 }
 
+/// Represents the overall color processing mode
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ColorState {
-    RGB,        // Independent RGB channels
-    Monochrome, // Single channel (grayscale)
-    Correlated, // Channels are correlated/related to each other
+    /// Independent RGB channels - each attractor controls one channel
+    RGB,
+    /// Single channel mode - only the red channel is active (grayscale effect)
+    Monochrome,
+    /// Correlated channels - all channels share similar parameters with small variations
+    Correlated,
 }
 
+/// Represents the symmetry transformation applied to attractor patterns
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum SymmetryType {
-    None,    // No symmetry
-    Radial4, // 4-fold radial symmetry
-    Radial6, // 6-fold radial symmetry
-    Radial8, // 8-fold radial symmetry
+    /// No symmetry transformation
+    None,
+    /// 4-fold radial symmetry (90-degree rotations around center)
+    Radial4,
+    /// 6-fold radial symmetry (60-degree rotations around center)
+    Radial6,
+    /// 8-fold radial symmetry (45-degree rotations around center)
+    Radial8,
 }
 
+/// Represents a single Pickover attractor system with its state and visualization data
 #[derive(Clone)]
 struct PickoverSystem {
+    // =============================================================================
+    // Mathematical Parameters
+    // =============================================================================
+    
+    /// Current x-coordinate in the attractor iteration
     x: f64,
+    /// Current y-coordinate in the attractor iteration
     y: f64,
+    /// Parameter 'a' in the Pickover attractor equations
     a: f64,
+    /// Parameter 'b' in the Pickover attractor equations
     b: f64,
+    /// Parameter 'c' in the Pickover attractor equations
     c: f64,
+    /// Parameter 'd' in the Pickover attractor equations
     d: f64,
+    
+    // =============================================================================
+    // Scaling and Positioning
+    // =============================================================================
+    
+    /// Scale factor for x-coordinate mapping to screen pixels
     scalex: f64,
+    /// Scale factor for y-coordinate mapping to screen pixels
     scaley: f64,
+    /// Minimum x-coordinate for the drawing area
     minx: f64,
+    /// Minimum y-coordinate for the drawing area
     miny: f64,
+    
+    // =============================================================================
+    // Image Data and Rendering
+    // =============================================================================
+    
+    /// Pixel data for this attractor's channel (grayscale values)
     pixels: Vec<u8>,
-    changed_pixel_indices: Vec<usize>,  // Only store indices of changed pixels
-    needs_full_refresh: bool,           // Flag for when entire image needs refresh
-    symmetry_buffer: Vec<(i32, i32)>,  // Pre-allocated buffer for symmetry calculations
+    /// Indices of pixels that have changed since last frame (for efficient updates)
+    changed_pixel_indices: Vec<usize>,
+    /// Flag indicating when the entire image needs to be refreshed
+    needs_full_refresh: bool,
+    /// Pre-allocated buffer for symmetry transformation calculations
+    symmetry_buffer: Vec<(i32, i32)>,
+    /// Width of the attractor's drawing area in pixels
     width: usize,
+    /// Height of the attractor's drawing area in pixels
     height: usize,
-    nonzero_pixels: usize,  // Count of pixels that are non-zero
-    maxed_pixels: usize,    // Count of pixels that have reached 255
-    invert: bool,  // Added invert flag
+    
+    // =============================================================================
+    // Statistics and Performance
+    // =============================================================================
+    
+    /// Count of pixels that have non-zero values
+    nonzero_pixels: usize,
+    /// Count of pixels that have reached maximum value (255)
+    maxed_pixels: usize,
+    /// Counter for consecutive steps with no new pixels plotted
+    consecutive_empty_steps: u32,
+    
+    // =============================================================================
+    // Visual State and Configuration
+    // =============================================================================
+    
+    /// Whether to invert colors (day/night mode)
+    invert: bool,
+    /// Current lifecycle status of this attractor
     status: AttractorStatus,
-    display_start_time: f64,    // When display phase started
-    fade_start_time: f64,       // When fade phase started
-    channel: ColorChannel,  // Which color channel to use
-    active: bool,          // Whether this attractor is currently active
-    start_time: f64,       // When this attractor configuration started running
-    monochrome: bool,      // Whether to use monochrome mode
-    color_state: ColorState, // Current color state
-    symmetry: SymmetryType, // Symmetry transformation to apply
-    consecutive_empty_steps: u32, // Counter for debugging empty pixel updates
+    /// Timestamp when the display phase started
+    display_start_time: f64,
+    /// Timestamp when the fade phase started
+    fade_start_time: f64,
+    /// Which color channel this attractor controls
+    channel: ColorChannel,
+    /// Whether this attractor is currently active and updating
+    active: bool,
+    /// Timestamp when this attractor configuration started running
+    start_time: f64,
+    /// Whether monochrome mode is enabled for this attractor
+    monochrome: bool,
+    /// Current color processing mode
+    color_state: ColorState,
+    /// Symmetry transformation to apply to this attractor's pattern
+    symmetry: SymmetryType,
 }
 
-// Pre-calculated symmetry transformation values for performance
+/// Pre-calculated trigonometric values for symmetry transformations
+/// 
+/// This struct stores pre-computed cosine and sine values for various
+/// rotation angles to avoid repeated trigonometric calculations during
+/// real-time rendering. Each tuple contains (cos(angle), sin(angle)).
 struct SymmetryLookupTables {
-    radial4: Vec<(f64, f64)>,  // (cos, sin) pairs for 4-fold symmetry
-    radial6: Vec<(f64, f64)>,  // (cos, sin) pairs for 6-fold symmetry  
-    radial8: Vec<(f64, f64)>,  // (cos, sin) pairs for 8-fold symmetry
+    /// 4-fold symmetry: 90°, 180°, 270° rotations
+    radial4: Vec<(f64, f64)>,
+    /// 6-fold symmetry: 60°, 120°, 180°, 240°, 300° rotations
+    radial6: Vec<(f64, f64)>,
+    /// 8-fold symmetry: 45°, 90°, 135°, 180°, 225°, 270°, 315° rotations
+    radial8: Vec<(f64, f64)>,
 }
 
 impl SymmetryLookupTables {
@@ -1908,9 +2041,9 @@ async fn main() {
                     attractor.y = 0.1;
                 }
                 
-                // Clear the screen respecting current day/night mode
-                clear_background(if global_invert { WHITE } else { BLACK });
-                let fill_value = if global_invert { 255 } else { 0 };
+                // Clear the screen
+                clear_background(if attractors[0].invert { WHITE } else { BLACK });
+                let fill_value = if attractors[0].invert { 255 } else { 0 };
                 for pixel in image_buffer.iter_mut() {
                     pixel[0] = fill_value;
                     pixel[1] = fill_value;
