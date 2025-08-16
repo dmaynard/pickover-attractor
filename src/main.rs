@@ -506,9 +506,13 @@ impl PickoverSystem {
         let mut pixels_plotted_this_step = 0;
         
         for (px, py) in symmetric_pixels {
-            // Safety check: ensure coordinates are within valid bounds
-            if px >= 0 && px < self.width as i32 && py >= 0 && py < self.height as i32 {
-                let idx = py as usize * self.width + px as usize;
+            // Safety check: ensure coordinates are within valid bounds with small margin for symmetry mode
+            // Add 2-pixel margin to handle floating-point precision issues in symmetry transformations
+            if px >= -2 && px < (self.width + 2) as i32 && py >= -2 && py < (self.height + 2) as i32 {
+                // Clamp coordinates to valid image bounds to handle margin cases
+                let clamped_px = px.max(0).min((self.width - 1) as i32);
+                let clamped_py = py.max(0).min((self.height - 1) as i32);
+                let idx = clamped_py as usize * self.width + clamped_px as usize;
                 
                 // Safety check: ensure index is within pixel array bounds
                 if idx < self.pixels.len() {
@@ -769,7 +773,7 @@ impl PickoverSystem {
             start_time: current_time,
             monochrome: false,
             color_state,
-            symmetry: SymmetryType::None, // Default to no symmetry
+            symmetry: SymmetryType::Radial6, // Default to 6-fold symmetry
             consecutive_empty_steps: 0,
         };
         
@@ -870,8 +874,8 @@ impl PickoverSystem {
         }
     }
 
-    fn print_stats(&self) {
-       if self.active {
+    fn print_stats(&self, suppress_output: bool) {
+       if self.active && !suppress_output {
         println!(
             "Pixels: {} active ({:.1}%), {} maxed ({:.1}%)", 
             self.nonzero_pixels,
@@ -954,7 +958,7 @@ impl PickoverSystem {
         self.needs_full_refresh = false;
     }
 
-    fn should_reset(&self, frame_count: u32) -> bool {
+    fn should_reset(&self, frame_count: u32, suppress_saturation_messages: bool) -> bool {
         // Don't reset during initial development phase
         if frame_count < 100 {
             return false;
@@ -972,14 +976,18 @@ impl PickoverSystem {
         let time_exceeded = get_time() - self.start_time > MAX_ATTRACTOR_RUNTIME;
         
         if saturated {
-            if self.nonzero_pixels > 0 {
-                let saturation_ratio = self.maxed_pixels as f64 / self.nonzero_pixels as f64;
-                println!("  Resetting due to saturation: {:.1}%", saturation_ratio * 100.0);
-            } else {
-                println!("  Resetting due to saturation (no pixels)");
+            if !suppress_saturation_messages {
+                if self.nonzero_pixels > 0 {
+                    let saturation_ratio = self.maxed_pixels as f64 / self.nonzero_pixels as f64;
+                    println!("  Resetting due to saturation: {:.1}%", saturation_ratio * 100.0);
+                } else {
+                    println!("  Resetting due to saturation (no pixels)");
+                }
             }
         } else if time_exceeded {
-            println!("  Resetting due to time limit");
+            if !suppress_saturation_messages {
+                println!("  Resetting due to time limit");
+            }
         }
         
         saturated || time_exceeded
@@ -1132,7 +1140,7 @@ async fn main() {
     let mut color_state = ColorState::Monochrome;  // Current color state
     let mut shared_params = (0.0, 0.0, 0.0, 0.0);  // Shared parameters for correlated mode
     // Removed correlated_deviation slider - now using random values between 0-1%
-    let mut symmetry = SymmetryType::None;  // Current symmetry mode
+                let mut symmetry = SymmetryType::Radial6;  // Current symmetry mode - default to 6-fold
     let mut global_invert = false;  // Global day/night mode (false = day, true = night)
 
     let mut attractors = vec![
@@ -1675,26 +1683,21 @@ async fn main() {
                         // This prevents immediate re-entry into Running state
                         else {
                             let time_since_display_start = get_time() - attractor.display_start_time;
-                            if time_since_display_start > DISPLAY_GRACE_PERIOD && attractor.should_reset(frame_count) {
-                                // Debug: Log when reset conditions are met
-                                println!("  Reset conditions met for attractor {} (frame {}) - nonzero_pixels={}, maxed_pixels={}, consecutive_empty_steps={}", 
-                                         match attractor.channel { ColorChannel::Red => "Red", ColorChannel::Green => "Green", ColorChannel::Blue => "Blue" },
-                                         frame_count, attractor.nonzero_pixels, attractor.maxed_pixels, attractor.consecutive_empty_steps);
-                                
+                            // In monochrome mode, suppress saturation messages for green and blue attractors
+                            let suppress_messages = color_state == ColorState::Monochrome && 
+                                                   matches!(attractor.channel, ColorChannel::Green | ColorChannel::Blue);
+                            if time_since_display_start > DISPLAY_GRACE_PERIOD && attractor.should_reset(frame_count, suppress_messages) {
                                 // Saturation or time limit reached - go to Displaying state first to show results
                                 // The comprehensive reset will happen after the Display → Fade cycle completes
-                                println!("  Attractor transitioning to Displaying state due to saturation or time limit (frame {})", frame_count);
                                 
                                 // In correlated mode, ALL attractors go to Displaying state when ANY reaches saturation
                                 if color_state == ColorState::Correlated {
-                                    println!("  Correlated mode: Synchronizing ALL attractors to Displaying state");
                                     needs_correlated_sync = true;
                                     correlated_sync_time = get_time();
                                 }
                                 
                                 // In monochrome mode, synchronize all channels when Red transitions to Displaying
                                 if color_state == ColorState::Monochrome && attractor.channel == ColorChannel::Red {
-                                    println!("  Monochrome mode: Synchronizing Green and Blue attractors to Displaying state");
                                     let current_time = get_time();
                                     // Set flag to synchronize after the loop to avoid borrowing conflicts
                                     needs_monochrome_sync = true;
@@ -1705,10 +1708,6 @@ async fn main() {
                                 attractor.status = AttractorStatus::Displaying;
                                 let current_time = get_time();
                                 attractor.display_start_time = current_time;
-                                
-                                // Validate the timing values to prevent corruption
-                                println!("  Timing validation: current_time={:.1}, display_start_time={:.1}", 
-                                         current_time, attractor.display_start_time);
                             }
                         }
                     }
@@ -1723,17 +1722,14 @@ async fn main() {
                         }
                         
                         if display_elapsed >= DISPLAY_DURATION {
-                            println!("  Attractor transitioning to Fading state after {:.1}s", display_elapsed);
                             attractor.status = AttractorStatus::Fading;
                             attractor.fade_start_time = get_time();
                         } else if display_elapsed > DISPLAY_DURATION * 1.5 { // More aggressive safety: 15 seconds instead of 20
                             // Safety mechanism: force transition if stuck in displaying for too long
-                            println!("  Safety reset: attractor stuck in displaying for {:.1}s, forcing fade", display_elapsed);
                             attractor.status = AttractorStatus::Fading;
                             attractor.fade_start_time = get_time();
                         } else if display_elapsed > 30.0 { // Emergency safety: force reset after 30 seconds
                             // This should never happen, but if it does, force a complete reset
-                            println!("  EMERGENCY: Attractor stuck in displaying for {:.1}s - forcing complete reset", display_elapsed);
                             attractor.reset_with_random_params(paused);
                             attractor.status = AttractorStatus::Running;
                             attractor.start_time = get_time();
@@ -1878,11 +1874,6 @@ async fn main() {
                     
                     // Recalculate scales for new parameters
                     attractor.calculate_scales();
-                    
-                    // Debug: Log the reset state for each attractor
-                    println!("  Correlated reset: {} attractor reset with params a={:.3}, b={:.3}, c={:.3}, d={:.3}", 
-                             match attractor.channel { ColorChannel::Red => "Red", ColorChannel::Green => "Green", ColorChannel::Blue => "Blue" },
-                             attractor.a, attractor.b, attractor.c, attractor.d);
                 }
                 
                 needs_correlated_reset = false;
@@ -1890,7 +1881,6 @@ async fn main() {
             
             // Handle monochrome synchronization after the loop to avoid borrowing issues
             if needs_monochrome_sync && color_state == ColorState::Monochrome {
-                println!("  Monochrome mode: Synchronizing Green and Blue attractors");
                 // Synchronize Green and Blue attractors to match Red's state
                 if attractors[0].status == AttractorStatus::Displaying {
                     // Red is in Displaying state - put Green and Blue there too
@@ -1910,13 +1900,10 @@ async fn main() {
             
             // Handle correlated sync after the loop to avoid borrowing issues
             if needs_correlated_sync && color_state == ColorState::Correlated {
-                println!("  Correlated mode: Synchronizing ALL attractors to Displaying state");
                 for attractor in attractors.iter_mut() {
                     if attractor.status == AttractorStatus::Running {
                         attractor.status = AttractorStatus::Displaying;
                         attractor.display_start_time = correlated_sync_time;
-                        println!("  Forcing {} attractor into Displaying state", 
-                                 match attractor.channel { ColorChannel::Red => "Red", ColorChannel::Green => "Green", ColorChannel::Blue => "Blue" });
                     }
                 }
                 needs_correlated_sync = false;
@@ -1927,8 +1914,6 @@ async fn main() {
                 // Check if any attractor is in fading state
                 let any_fading = attractors.iter().any(|a| a.status == AttractorStatus::Fading);
                 if any_fading && frame_count % 2 == 0 { // Fade every other frame
-                    println!("  Correlated mode: Applying fade effect to entire image");
-                    
                     // Fade the entire image buffer by reducing all pixel values
                     for pixel in image_buffer.iter_mut() {
                         // Fade each RGB channel independently
@@ -2779,8 +2764,10 @@ async fn main() {
             fps = 60.0 / elapsed;
             last_fps_time = current_time;
 
-            for attractor in attractors.iter() {
-                attractor.print_stats();
+            for (i, attractor) in attractors.iter().enumerate() {
+                // In monochrome mode, suppress output for green and blue attractors
+                let suppress_output = color_state == ColorState::Monochrome && i != 0;
+                attractor.print_stats(suppress_output);
             }
             println!("Performance metrics:");
             println!("  FPS: {:.1}", fps);
