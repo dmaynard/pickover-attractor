@@ -1,81 +1,297 @@
+//! # Pickover Attractor Visualizer
+//! 
+//! A real-time visualization of Pickover attractors using the Macroquad game framework.
+//! This application generates and displays chaotic mathematical patterns based on the
+//! Pickover attractor equations, with support for multiple color modes, symmetry
+//! transformations, and day/night theme switching.
+//! 
+//! ## Features
+//! - Real-time attractor generation and visualization
+//! - Multiple color modes: RGB, Monochrome, and Correlated
+//! - Symmetry transformations: 4-fold, 6-fold, and 8-fold radial symmetry
+//! - Day/Night theme switching with color inversion
+//! - Automatic attractor lifecycle management
+//! - Cross-platform support (native and WebAssembly)
+//! 
+//! ## Mathematical Background
+//! The Pickover attractor is defined by the iterative equations:
+//! ```
+//! x_{n+1} = sin(b * y_n) - c * sin(b * x_n)
+//! y_{n+1} = sin(a * x_n) + d * cos(a * y_n)
+//! ```
+//! where a, b, c, and d are parameters that determine the pattern's behavior.
+//! 
+//! ## Architecture
+//! This application uses a state machine pattern for attractor lifecycle management:
+//! - **Running**: Actively calculating new points and updating the display
+//! - **Displaying**: Showing the current state without updates
+//! - **Fading**: Gradually fading out the current state
+//! 
+//! ## Performance Considerations
+//! - Efficient pixel update tracking using change indices
+//! - Pre-calculated symmetry transformation tables
+//! - Optimized rendering with full refresh flags
+//! 
+//! ## License
+//! This project is open source. See LICENSE file for details.
+
 use macroquad::prelude::*;
-use macroquad::ui::{hash, root_ui};
 
-const SCALE: f64 = 120.0;  // Adjusted scale for better visibility
-const MAX_ATTRACTOR_RUNTIME: f64 = 60.0;  // Maximum time in seconds before forcing a reset
-const DISPLAY_DURATION: f64 = 10.0;  // Time to display the attractor in seconds
-const FADE_DURATION: f64 = 4.0;  // Time to fade out the attractor in seconds
-const SATURATION_THRESHOLD: f64 = 0.15;  // Reset when 15% of active pixels are maxed out
-const DEFAULT_CORRELATED_DEVIATION: f64 = 0.002;  // Default percentage deviation for correlated mode parameters (0.002 = 0.2% deviation)
-const UI_AREA_HEIGHT: f32 = 100.0;  // Height reserved for UI elements at the bottom (increased from 75.0)
+// =============================================================================
+// Application Configuration Constants
+// =============================================================================
 
+/// Scale factor for attractor visualization (higher values = more zoomed in)
+const SCALE: f64 = 120.0;
+
+/// Maximum runtime for an attractor before forcing a reset (seconds)
+const MAX_ATTRACTOR_RUNTIME: f64 = 60.0;
+
+/// Duration to display the attractor without updates (seconds)
+const DISPLAY_DURATION: f64 = 10.0;
+
+/// Duration for the fade-out effect (seconds)
+const FADE_DURATION: f64 = 4.0;
+
+/// Threshold percentage of maxed pixels to trigger reset (0.15 = 15%)
+const SATURATION_THRESHOLD: f64 = 0.15;
+
+
+
+/// Height reserved for UI elements at the bottom of the screen (pixels)
+const UI_AREA_HEIGHT: f32 = 100.0;
+
+// =============================================================================
+// UI Layout Constants
+// =============================================================================
+
+/// Padding around UI elements for better spacing
+const UI_PADDING: f32 = 15.0;
+
+/// Height of UI buttons
+const BUTTON_HEIGHT: f32 = 28.0;
+
+/// Spacing between buttons
+const BUTTON_SPACING: f32 = 8.0;
+
+/// Spacing between rows of buttons
+const ROW_SPACING: f32 = 12.0;
+
+/// Width of the RGB button
+const RGB_BUTTON_WIDTH: f32 = 85.0;
+
+/// Width of the Monochrome button
+const MONO_BUTTON_WIDTH: f32 = 85.0;
+
+/// Width of the Correlated button
+const CORR_BUTTON_WIDTH: f32 = 85.0;
+
+/// Width of the Symmetry button
+const SYMMETRY_BUTTON_WIDTH: f32 = 75.0;
+
+/// Width of the Day/Night button
+const DAY_BUTTON_WIDTH: f32 = 55.0;
+
+/// Width of the Pause/Resume button
+const PAUSE_BUTTON_WIDTH: f32 = 65.0;
+
+/// Width of the Help button
+const HELP_BUTTON_WIDTH: f32 = 35.0;
+
+/// Width of the Next button
+const NEXT_BUTTON_WIDTH: f32 = 45.0;
+
+/// Width of the Quit button
+const QUIT_BUTTON_WIDTH: f32 = 45.0;
+
+// =============================================================================
+// Animation and Rendering Constants
+// =============================================================================
+
+/// Amount to fade pixels per frame during fade-out effect
+const FADE_AMOUNT: u8 = 4;
+
+/// Minimum range for attractor scaling to prevent extreme scaling
+const MIN_SCALING_RANGE: f64 = 0.1;
+
+/// Margin percentage for attractor bounds (10%)
+const BOUNDS_MARGIN: f64 = 0.1;
+
+/// Percentage of window size to use for symmetry modes (95%)
+const SYMMETRY_WINDOW_PERCENTAGE: f64 = 0.95;
+
+/// Precision scaling factor for point uniqueness checks
+const POINT_PRECISION_SCALE: f64 = 500.0;
+
+/// Reduced warmup iterations for attractor evaluation
+const WARMUP_ITERATIONS: usize = 500;
+
+/// Reduced evaluation iterations for attractor quality assessment
+const EVALUATION_ITERATIONS: usize = 3000;
+
+/// Stagnation check frequency during evaluation
+const STAGNATION_CHECK_FREQUENCY: usize = 200;
+
+/// Maximum allowed stagnant iterations before rejecting attractor
+const MAX_STAGNANT_ITERATIONS: usize = 3;
+
+/// Minimum unique points required for early success
+const MIN_POINTS_FOR_EARLY_SUCCESS: usize = 1500;
+
+/// Minimum area required for attractor acceptance
+const MIN_ACCEPTABLE_AREA: f64 = 0.5;
+
+/// Minimum percentage of new points required for attractor acceptance
+const MIN_NEW_POINTS_PERCENTAGE: f64 = 0.8;
+
+/// Grace period after transitioning to Displaying state before allowing reset checks
+const DISPLAY_GRACE_PERIOD: f64 = 0.1;  // 100ms
+
+// =============================================================================
+// Core Data Types and Enums
+// =============================================================================
+
+/// Represents the current lifecycle state of an attractor
 #[derive(PartialEq, Clone)]
 enum AttractorStatus {
-    Running,    // Actively calculating new points
-    Displaying, // Showing the current state without updates
-    Fading,     // Gradually fading out the current state
+    /// Actively calculating new points and updating the display
+    Running,
+    /// Showing the current state without updates (static display)
+    Displaying,
+    /// Gradually fading out the current state before reset
+    Fading,
 }
 
-#[derive(Clone, Copy, Debug)]
+/// Represents individual color channels for RGB processing
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum ColorChannel {
     Red,
     Green,
     Blue,
 }
 
+/// Represents the overall color processing mode
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ColorState {
-    RGB,        // Independent RGB channels
-    Monochrome, // Single channel (grayscale)
-    Correlated, // Channels are correlated/related to each other
+    /// Independent RGB channels - each attractor controls one channel
+    RGB,
+    /// Single channel mode - only the red channel is active (grayscale effect)
+    Monochrome,
+    /// Correlated channels - all channels share similar parameters with small variations
+    Correlated,
 }
 
+/// Represents the symmetry transformation applied to attractor patterns
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum SymmetryType {
-    None,    // No symmetry
-    Radial4, // 4-fold radial symmetry
-    Radial6, // 6-fold radial symmetry
-    Radial8, // 8-fold radial symmetry
+    /// No symmetry transformation
+    None,
+    /// 4-fold radial symmetry (90-degree rotations around center)
+    Radial4,
+    /// 6-fold radial symmetry (60-degree rotations around center)
+    Radial6,
+    /// 8-fold radial symmetry (45-degree rotations around center)
+    Radial8,
 }
 
+/// Represents a single Pickover attractor system with its state and visualization data
 #[derive(Clone)]
 struct PickoverSystem {
+    // =============================================================================
+    // Mathematical Parameters
+    // =============================================================================
+    
+    /// Current x-coordinate in the attractor iteration
     x: f64,
+    /// Current y-coordinate in the attractor iteration
     y: f64,
+    /// Parameter 'a' in the Pickover attractor equations
     a: f64,
+    /// Parameter 'b' in the Pickover attractor equations
     b: f64,
+    /// Parameter 'c' in the Pickover attractor equations
     c: f64,
+    /// Parameter 'd' in the Pickover attractor equations
     d: f64,
+    
+    // =============================================================================
+    // Scaling and Positioning
+    // =============================================================================
+    
+    /// Scale factor for x-coordinate mapping to screen pixels
     scalex: f64,
+    /// Scale factor for y-coordinate mapping to screen pixels
     scaley: f64,
+    /// Minimum x-coordinate for the drawing area
     minx: f64,
+    /// Minimum y-coordinate for the drawing area
     miny: f64,
+    
+    // =============================================================================
+    // Image Data and Rendering
+    // =============================================================================
+    
+    /// Pixel data for this attractor's channel (grayscale values)
     pixels: Vec<u8>,
-    changed_pixel_indices: Vec<usize>,  // Only store indices of changed pixels
-    needs_full_refresh: bool,           // Flag for when entire image needs refresh
-    symmetry_buffer: Vec<(i32, i32)>,  // Pre-allocated buffer for symmetry calculations
+    /// Indices of pixels that have changed since last frame (for efficient updates)
+    changed_pixel_indices: Vec<usize>,
+    /// Flag indicating when the entire image needs to be refreshed
+    needs_full_refresh: bool,
+
+    /// Width of the attractor's drawing area in pixels
     width: usize,
+    /// Height of the attractor's drawing area in pixels
     height: usize,
-    nonzero_pixels: usize,  // Count of pixels that are non-zero
-    maxed_pixels: usize,    // Count of pixels that have reached 255
-    invert: bool,  // Added invert flag
+    
+    // =============================================================================
+    // Statistics and Performance
+    // =============================================================================
+    
+    /// Count of pixels that have non-zero values
+    nonzero_pixels: usize,
+    /// Count of pixels that have reached maximum value (255)
+    maxed_pixels: usize,
+    /// Counter for consecutive steps with no new pixels plotted
+    consecutive_empty_steps: u32,
+    
+    // =============================================================================
+    // Visual State and Configuration
+    // =============================================================================
+    
+    /// Whether to invert colors (day/night mode)
+    invert: bool,
+    /// Current lifecycle status of this attractor
     status: AttractorStatus,
-    display_start_time: f64,    // When display phase started
-    fade_start_time: f64,       // When fade phase started
-    channel: ColorChannel,  // Which color channel to use
-    active: bool,          // Whether this attractor is currently active
-    start_time: f64,       // When this attractor configuration started running
-    monochrome: bool,      // Whether to use monochrome mode
-    color_state: ColorState, // Current color state
-    symmetry: SymmetryType, // Symmetry transformation to apply
-    consecutive_empty_steps: u32, // Counter for debugging empty pixel updates
+    /// Timestamp when the display phase started
+    display_start_time: f64,
+    /// Timestamp when the fade phase started
+    fade_start_time: f64,
+    /// Which color channel this attractor controls
+    channel: ColorChannel,
+    /// Whether this attractor is currently active and updating
+    active: bool,
+    /// Timestamp when this attractor configuration started running
+    start_time: f64,
+    /// Whether monochrome mode is enabled for this attractor
+    monochrome: bool,
+    /// Current color processing mode
+    color_state: ColorState,
+    /// Symmetry transformation to apply to this attractor's pattern
+    symmetry: SymmetryType,
 }
 
-// Pre-calculated symmetry transformation values for performance
+/// Pre-calculated trigonometric values for symmetry transformations
+/// 
+/// This struct stores pre-computed cosine and sine values for various
+/// rotation angles to avoid repeated trigonometric calculations during
+/// real-time rendering. Each tuple contains (cos(angle), sin(angle)).
 struct SymmetryLookupTables {
-    radial4: Vec<(f64, f64)>,  // (cos, sin) pairs for 4-fold symmetry
-    radial6: Vec<(f64, f64)>,  // (cos, sin) pairs for 6-fold symmetry  
-    radial8: Vec<(f64, f64)>,  // (cos, sin) pairs for 8-fold symmetry
+    /// 4-fold symmetry: 90°, 180°, 270° rotations
+    radial4: Vec<(f64, f64)>,
+    /// 6-fold symmetry: 60°, 120°, 180°, 240°, 300° rotations
+    radial6: Vec<(f64, f64)>,
+    /// 8-fold symmetry: 45°, 90°, 135°, 180°, 225°, 270°, 315° rotations
+    radial8: Vec<(f64, f64)>,
 }
 
 impl SymmetryLookupTables {
@@ -107,16 +323,37 @@ impl SymmetryLookupTables {
 }
 
 // Global lookup tables (initialized once)
+// 
+// SAFETY: This static is only written to once during initialization in main(),
+// and then only read from. The get_symmetry_tables() function is only called
+// after initialization is complete, so there are no race conditions.
 static mut SYMMETRY_TABLES: Option<SymmetryLookupTables> = None;
 
+/// Gets a reference to the global symmetry lookup tables
+/// 
+/// # Safety
+/// This function is safe to call only after SYMMETRY_TABLES has been initialized
+/// in the main() function. The tables are initialized once and never modified
+/// after initialization.
 fn get_symmetry_tables() -> &'static SymmetryLookupTables {
     unsafe {
+        // SAFETY: This is safe because:
+        // 1. SYMMETRY_TABLES is initialized once in main() before any calls to this function
+        // 2. The tables are never modified after initialization
+        // 3. This function is only called from the main thread during rendering
         SYMMETRY_TABLES.as_ref().unwrap()
     }
 }
 
 impl PickoverSystem {
-    // Helper function to apply deviation to a parameter
+    /// Applies a random deviation to a parameter value for correlated mode
+    /// 
+    /// # Arguments
+    /// * `base_value` - The original parameter value
+    /// * `deviation_percent` - The percentage deviation to apply (0.0 = no change)
+    /// 
+    /// # Returns
+    /// A new value with random deviation applied
     fn apply_deviation(base_value: f64, deviation_percent: f64) -> f64 {
         if deviation_percent == 0.0 {
             base_value
@@ -126,14 +363,32 @@ impl PickoverSystem {
         }
     }
 
-    // Extract attractor equation into its own function
+    /// Calculates the next point in the Pickover attractor iteration
+    /// 
+    /// This is the core mathematical function that defines the attractor behavior.
+    /// The equations are:
+    /// - x_{n+1} = sin(b * y_n) - c * sin(b * x_n)
+    /// - y_{n+1} = sin(a * x_n) + d * cos(a * y_n)
+    /// 
+    /// # Arguments
+    /// * `x` - Current x-coordinate
+    /// * `y` - Current y-coordinate
+    /// 
+    /// # Returns
+    /// A tuple containing the next (x, y) coordinates
     fn next_point(&self, x: f64, y: f64) -> (f64, f64) {
         let new_x = (self.b * y).sin() - self.c * (self.b * x).sin();
         let new_y = (self.a * x).sin() + self.d * (self.a * y).cos();
         (new_x, new_y)
     }
 
-    // Get the effective drawing bounds (square for symmetry modes, full rectangle for none)
+    /// Gets the effective drawing bounds for the current symmetry mode
+    /// 
+    /// For symmetry modes, returns a centered square to ensure proper
+    /// rotational transformations. For no symmetry, returns the full window.
+    /// 
+    /// # Returns
+    /// A tuple (min_x, min_y, max_x, max_y) defining the drawing area
     fn get_drawing_bounds(&self) -> (f64, f64, f64, f64) {
         if self.symmetry == SymmetryType::None {
             // Use full window for no symmetry
@@ -147,7 +402,17 @@ impl PickoverSystem {
         }
     }
 
-    // Generate symmetric pixel coordinates for a given point (f64 version for maximum precision)
+    /// Generates symmetric pixel coordinates for a given point with maximum precision
+    /// 
+    /// This is the high-precision version that performs all calculations in f64
+    /// to avoid visual artifacts from precision loss during symmetry transformations.
+    /// 
+    /// # Arguments
+    /// * `screen_x` - Screen x-coordinate (f64 for precision)
+    /// * `screen_y` - Screen y-coordinate (f64 for precision)
+    /// 
+    /// # Returns
+    /// A vector of pixel coordinates including the original point and all symmetric copies
     fn get_symmetric_pixels_f64(&self, screen_x: f64, screen_y: f64) -> Vec<(i32, i32)> {
         let mut pixels = Vec::new();
         
@@ -211,22 +476,16 @@ impl PickoverSystem {
         pixels
     }
 
-    // Generate symmetric pixel coordinates for a given point (legacy i32 version)
-    fn get_symmetric_pixels(&self, screen_x: i32, screen_y: i32) -> Vec<(i32, i32)> {
-        self.get_symmetric_pixels_f64(screen_x as f64, screen_y as f64)
-    }
 
-    // Extract common image clearing code
-    fn clear_image(&mut self, image_data: &mut [[u8; 4]], fill_value: u8) {
-        image_data.iter_mut().for_each(|pixel| {
-            pixel[0] = fill_value;
-            pixel[1] = fill_value;
-            pixel[2] = fill_value;
-            pixel[3] = 255;
-        });
-        self.changed_pixel_indices.clear();
-    }
 
+    /// Performs one iteration step of the attractor simulation
+    /// 
+    /// This method:
+    /// 1. Calculates the next point using the attractor equations
+    /// 2. Converts to screen coordinates
+    /// 3. Applies symmetry transformations if enabled
+    /// 4. Updates pixel values and tracks changes
+    /// 5. Maintains statistics for performance monitoring
     fn step(&mut self) {
         let (new_x, new_y) = self.next_point(self.x, self.y);
         self.x = new_x;
@@ -243,12 +502,19 @@ impl PickoverSystem {
         let symmetric_pixels = self.get_symmetric_pixels_f64(screen_x_f64, screen_y_f64);
         let total_symmetric_pixels = symmetric_pixels.len();
         
-        // Plot all symmetric pixels
+        // Plot all symmetric pixels with safety bounds checking
         let mut pixels_plotted_this_step = 0;
         
         for (px, py) in symmetric_pixels {
-            if px >= 0 && px < self.width as i32 && py >= 0 && py < self.height as i32 {
-                let idx = py as usize * self.width + px as usize;
+            // Safety check: ensure coordinates are within valid bounds with small margin for symmetry mode
+            // Add 2-pixel margin to handle floating-point precision issues in symmetry transformations
+            if px >= -2 && px < (self.width + 2) as i32 && py >= -2 && py < (self.height + 2) as i32 {
+                // Clamp coordinates to valid image bounds to handle margin cases
+                let clamped_px = px.max(0).min((self.width - 1) as i32);
+                let clamped_py = py.max(0).min((self.height - 1) as i32);
+                let idx = clamped_py as usize * self.width + clamped_px as usize;
+                
+                // Safety check: ensure index is within pixel array bounds
                 if idx < self.pixels.len() {
                     let old_value = self.pixels[idx];
                     if old_value == 0 {
@@ -270,14 +536,22 @@ impl PickoverSystem {
                         self.changed_pixel_indices.push(idx);
                         pixels_plotted_this_step += 1;
                     }
+                } else {
+                    // Log out-of-bounds access for debugging (only in debug builds)
+                    #[cfg(debug_assertions)]
+                    eprintln!("Warning: Pixel index {} out of bounds (max: {})", idx, self.pixels.len());
                 }
+            } else {
+                // Log out-of-bounds coordinates for debugging (only in debug builds)
+                #[cfg(debug_assertions)]
+                eprintln!("Warning: Coordinates ({}, {}) out of bounds ({}, {})", px, py, self.width, self.height);
             }
         }
         
         // Debug: Only print when we're not plotting any pixels for multiple steps
         if pixels_plotted_this_step == 0 {
             self.consecutive_empty_steps += 1;
-            if self.consecutive_empty_steps >= 1000 {  // Transition to Displaying after 1000 consecutive empty steps
+            if self.consecutive_empty_steps >= 1000 && self.status == AttractorStatus::Running {  // Only transition if currently Running
                 println!("  Warning: Attractor {} has plotted 0 pixels for {} consecutive steps", 
                          match self.channel { ColorChannel::Red => "Red", ColorChannel::Green => "Green", ColorChannel::Blue => "Blue" },
                          self.consecutive_empty_steps);
@@ -296,23 +570,18 @@ impl PickoverSystem {
                             println!("    First pixel ({}, {}) value: {} (maxed: {})", 
                                      first_px.0, first_px.1, pixel_value, pixel_value == 255);
                             
-                            // If pixel is maxed out, this might be a small loop - transition to Displaying
+                            // If pixel is maxed out, this might be a small loop
+                            // But don't change state here - let the main loop handle it
                             if pixel_value == 255 {
-                                println!("    Detected maxed-out loop - transitioning to Displaying state");
-                                self.status = AttractorStatus::Displaying;
-                                self.display_start_time = get_time();
-                                self.consecutive_empty_steps = 0;
-                                return; // Exit early since we've handled the transition
+                                println!("    Detected maxed-out loop - will transition to Displaying via main loop");
                             }
                         }
                     }
                 }
                 
-                // If we've been stuck for 1000 steps with no new pixels, transition to Displaying
-                println!("    Attractor stuck for too long - transitioning to Displaying state");
-                self.status = AttractorStatus::Displaying;
-                self.display_start_time = get_time();
-                self.consecutive_empty_steps = 0;
+                // If we've been stuck for 1000 steps with no new pixels
+                // Log the stuck condition but don't change state here
+                println!("    Attractor stuck for too long - will transition to Displaying via main loop");
             }
         } else {
             self.consecutive_empty_steps = 0;
@@ -337,7 +606,6 @@ impl PickoverSystem {
             pixels: Vec::new(),
             changed_pixel_indices: Vec::new(),
             needs_full_refresh: false,
-            symmetry_buffer: Vec::new(),
             width: 0, height: 0,
             nonzero_pixels: 0,
             maxed_pixels: 0,
@@ -355,7 +623,7 @@ impl PickoverSystem {
         };
         
         // Reduced warmup phase
-        for _ in 0..500 {
+        for _ in 0..WARMUP_ITERATIONS {
             let (new_x, new_y) = sys.next_point(x, y);
             x = new_x;
             y = new_y;
@@ -368,7 +636,7 @@ impl PickoverSystem {
         let mut max_y = f64::MIN;
         
         // Reduced evaluation iterations
-        for i in 0..3000 {
+        for i in 0..EVALUATION_ITERATIONS {
             let (new_x, new_y) = sys.next_point(x, y);
             x = new_x;
             y = new_y;
@@ -381,19 +649,19 @@ impl PickoverSystem {
             max_y = max_y.max(y);
             
             // Add point to set (scaled to integer coordinates for uniqueness check)
-            let px = (x * 500.0) as i32;  // Reduced precision for faster HashSet operations
-            let py = (y * 500.0) as i32;
+            let px = (x * POINT_PRECISION_SCALE) as i32;  // Reduced precision for faster HashSet operations
+            let py = (y * POINT_PRECISION_SCALE) as i32;
             let point_was_new = points.insert((px, py));
             if point_was_new {
                 new_points_count += 1;
             }
             
-            // Check for stagnation every 200 iterations (less frequent)
-            if i % 200 == 0 {
+            // Check for stagnation every STAGNATION_CHECK_FREQUENCY iterations (less frequent)
+            if i % STAGNATION_CHECK_FREQUENCY == 0 {
                 if points.len() == last_points_count {
                     stagnant_count += 1;
                     // If we've been stagnant for too long, reject this attractor
-                    if stagnant_count > 3 {  // Reduced threshold
+                    if stagnant_count > MAX_STAGNANT_ITERATIONS {  // Reduced threshold
                         return (false, 0.0);
                     }
                 } else {
@@ -403,14 +671,14 @@ impl PickoverSystem {
             }
             
             // Early success if we have enough unique points and good diversity
-            if points.len() > 1500 {  // Reduced threshold
+            if points.len() > MIN_POINTS_FOR_EARLY_SUCCESS {  // Reduced threshold
                 // Calculate the area of the bounding box
                 let area = (max_x - min_x) * (max_y - min_y);
                 // Calculate percentage of new points
                 let new_points_percentage = new_points_count as f64 / total_iterations as f64;
                 
                 // Ensure the points are well spread out (not clustered) and have good diversity
-                if area > 0.5 && new_points_percentage > 0.8 {  // Relaxed criteria
+                if area > MIN_ACCEPTABLE_AREA && new_points_percentage > MIN_NEW_POINTS_PERCENTAGE {  // Relaxed criteria
                     return (true, new_points_percentage);
                 }
             }
@@ -460,11 +728,25 @@ impl PickoverSystem {
         }
     }
 
+    /// Creates a new Pickover attractor system with the specified parameters
+    /// 
+    /// # Arguments
+    /// * `x` - Initial x-coordinate for the attractor
+    /// * `y` - Initial y-coordinate for the attractor
+    /// * `width` - Width of the drawing area in pixels
+    /// * `height` - Height of the drawing area in pixels
+    /// * `channel` - Which color channel this attractor controls
+    /// * `paused` - Whether the system is in paused state
+    /// * `color_state` - Current color processing mode
+    /// * `invert` - Whether to invert colors (day/night mode)
+    /// 
+    /// # Returns
+    /// A new PickoverSystem instance with generated parameters and initialized state
     fn new(x: f64, y: f64, width: usize, height: usize, channel: ColorChannel, paused: bool, color_state: ColorState, invert: bool) -> Self {
         let (a, b, c, d) = Self::generate_interesting_params(paused);
         let current_time = get_time();
         
-        let mut system = Self {
+        let system = Self {
             x,
             y,
             a,
@@ -478,7 +760,6 @@ impl PickoverSystem {
             pixels: vec![0; width * height],
             changed_pixel_indices: Vec::new(),
             needs_full_refresh: false,
-            symmetry_buffer: Vec::new(),
             width,
             height,
             nonzero_pixels: 0,
@@ -492,13 +773,20 @@ impl PickoverSystem {
             start_time: current_time,
             monochrome: false,
             color_state,
-            symmetry: SymmetryType::None, // Default to no symmetry
+            symmetry: SymmetryType::Radial6, // Default to 6-fold symmetry
             consecutive_empty_steps: 0,
         };
         
         system
     }
 
+    /// Calculates optimal scaling factors for the attractor visualization
+    /// 
+    /// This method runs the attractor for many iterations to determine the
+    /// natural bounds of the pattern, then calculates scaling factors to
+    /// efficiently fill the available screen space.
+    /// 
+    /// The method handles different scaling strategies for symmetry vs. non-symmetry modes.
     fn calculate_scales(&mut self) {
         let mut minx = f64::MAX;
         let mut maxx = f64::MIN;
@@ -509,14 +797,14 @@ impl PickoverSystem {
         self.y = 0.1;
         
         // First run some iterations without tracking to let the attractor stabilize
-        for _ in 0..1000 {
+        for _ in 0..1000 {  // TODO: Extract to constant
             let (new_x, new_y) = self.next_point(self.x, self.y);
             self.x = new_x;
             self.y = new_y;
         }
         
         // Now track the bounds for the next set of iterations
-        for _ in 0..10000 {
+        for _ in 0..10000 {  // TODO: Extract to constant
             let (new_x, new_y) = self.next_point(self.x, self.y);
             self.x = new_x;
             self.y = new_y;
@@ -531,12 +819,12 @@ impl PickoverSystem {
         self.y = 0.1;
         
         // Ensure we have a minimum range to prevent extreme scaling
-        let min_range = 0.1;
+        let min_range = MIN_SCALING_RANGE;
         let x_range = (maxx - minx).max(min_range);
         let y_range = (maxy - miny).max(min_range);
         
         // Add margin to the bounds
-        let margin = 0.1;  // 10% margin
+        let margin = BOUNDS_MARGIN;  // 10% margin
         
         if self.symmetry == SymmetryType::None {
             // No symmetry: use independent scaling to fill screen efficiently
@@ -559,7 +847,7 @@ impl PickoverSystem {
             let max_range = x_range.max(y_range);
             
             // Find the largest square that fits in the window
-            let square_size = (self.width.min(self.height) as f64) * 0.95; // 95% of smaller dimension
+            let square_size = (self.width.min(self.height) as f64) * SYMMETRY_WINDOW_PERCENTAGE; // 95% of smaller dimension
             
             // Calculate scale to fit the pattern in this square
             let total_range = max_range * (1.0 + 2.0 * margin);
@@ -586,8 +874,8 @@ impl PickoverSystem {
         }
     }
 
-    fn print_stats(&self) {
-       if self.active {
+    fn print_stats(&self, suppress_output: bool) {
+       if self.active && !suppress_output {
         println!(
             "Pixels: {} active ({:.1}%), {} maxed ({:.1}%)", 
             self.nonzero_pixels,
@@ -623,11 +911,12 @@ impl PickoverSystem {
         self.x = 0.1;
         self.y = 0.1;
         
-        // Clear pixel data
+        // Clear pixel data and reset all counters
         self.pixels.fill(0);
         self.changed_pixel_indices.clear();
         self.nonzero_pixels = 0;
         self.maxed_pixels = 0;
+        self.consecutive_empty_steps = 0; // Reset stuck counter to prevent immediate saturation
         let current_time = get_time();
         self.display_start_time = current_time;
         self.fade_start_time = current_time;
@@ -638,6 +927,16 @@ impl PickoverSystem {
         
         // Recalculate scales for new parameters
         self.calculate_scales();
+        // Note: Status is NOT set here - the caller must handle the state transition
+        // This allows the method to be used for parameter resets without forcing a state change
+    }
+
+    /// Resets the attractor with new random parameters and immediately sets it to Running state
+    /// 
+    /// This is a convenience method for cases where you want to reset parameters
+    /// and immediately start the attractor running (e.g., manual resets, channel toggles)
+    fn reset_and_start(&mut self, paused: bool) {
+        self.reset_with_random_params(paused);
         self.status = AttractorStatus::Running;
     }
 
@@ -659,23 +958,36 @@ impl PickoverSystem {
         self.needs_full_refresh = false;
     }
 
-    fn should_reset(&self, frame_count: u32) -> bool {
+    fn should_reset(&self, frame_count: u32, suppress_saturation_messages: bool) -> bool {
         // Don't reset during initial development phase
         if frame_count < 100 {
             return false;
         }
 
         // Reset when more than SATURATION_THRESHOLD of active pixels are maxed out
-        let saturation_ratio = self.maxed_pixels as f64 / self.nonzero_pixels as f64;
-        let saturated = saturation_ratio > SATURATION_THRESHOLD;
+        let saturated = if self.nonzero_pixels == 0 {
+            false // Can't be saturated if there are no pixels
+        } else {
+            let saturation_ratio = self.maxed_pixels as f64 / self.nonzero_pixels as f64;
+            saturation_ratio > SATURATION_THRESHOLD
+        };
         
         // Reset if the attractor has been running for more than the maximum time
         let time_exceeded = get_time() - self.start_time > MAX_ATTRACTOR_RUNTIME;
         
         if saturated {
-            println!("  Resetting due to saturation: {:.1}%", saturation_ratio * 100.0);
+            if !suppress_saturation_messages {
+                if self.nonzero_pixels > 0 {
+                    let saturation_ratio = self.maxed_pixels as f64 / self.nonzero_pixels as f64;
+                    println!("  Resetting due to saturation: {:.1}%", saturation_ratio * 100.0);
+                } else {
+                    println!("  Resetting due to saturation (no pixels)");
+                }
+            }
         } else if time_exceeded {
-            println!("  Resetting due to time limit");
+            if !suppress_saturation_messages {
+                println!("  Resetting due to time limit");
+            }
         }
         
         saturated || time_exceeded
@@ -710,6 +1022,15 @@ fn draw_command_summary(inverted: bool) {
     draw_text_improved("Q     - Quit program", x_pos, y_start + line_height * 10.0, 20.0, text_color);
 }
 
+/// Seeds the random number generator with entropy from multiple sources
+/// 
+/// This function creates a robust seed using WASM-compatible entropy sources:
+/// - High-precision time (microseconds)
+/// - Screen dimensions
+/// - Time differences and variations
+/// - Pseudo-random mixing algorithms
+/// 
+/// The resulting seed ensures unique attractor parameters on each run.
 fn seed_rng() {
     // Create a robust seed using WASM-compatible entropy sources
     let mut seed = 0u64;
@@ -743,13 +1064,29 @@ fn seed_rng() {
     rand::srand(seed);
 }
 
-// Helper function for better text rendering
+/// Improved text rendering function that avoids rendering artifacts
+/// 
+/// This wrapper around macroquad's draw_text function ensures consistent
+/// text rendering without offset issues that could cause visual artifacts.
+/// 
+/// # Arguments
+/// * `text` - The text string to render
+/// * `x` - X-coordinate for text placement
+/// * `y` - Y-coordinate for text placement
+/// * `font_size` - Size of the font
+/// * `color` - Color of the text
 fn draw_text_improved(text: &str, x: f32, y: f32, font_size: f32, color: Color) {
     // Draw text without offset to avoid rendering artifacts
     draw_text(text, x, y, font_size, color);
 }
 
-// Helper function to get display name for symmetry types
+/// Gets the user-friendly display name for a symmetry type
+/// 
+/// # Arguments
+/// * `symmetry` - The symmetry type to get the name for
+/// 
+/// # Returns
+/// A human-readable string representation of the symmetry type
 fn get_symmetry_display_name(symmetry: SymmetryType) -> &'static str {
     match symmetry {
         SymmetryType::None => "Symmetry",
@@ -759,13 +1096,27 @@ fn get_symmetry_display_name(symmetry: SymmetryType) -> &'static str {
     }
 }
 
-// Helper function to generate random correlation percentage (0-1%)
+/// Generates a random correlation percentage for correlated color mode
+/// 
+/// # Returns
+/// A random value between 0.0 and 0.01 (0% to 1%) representing
+/// the deviation percentage for correlated attractor parameters
 fn generate_random_correlation() -> f64 {
     rand::gen_range(0.0, 1.0) / 100.0  // Convert to percentage (0-0.01)
 }
 
 
 
+/// Main application entry point
+/// 
+/// This function initializes the Pickover attractor visualization system and runs
+/// the main game loop. It handles:
+/// - Random number generator seeding
+/// - Symmetry lookup table initialization
+/// - Attractor system creation and initialization
+/// - Main rendering and update loop
+/// - User input handling
+/// - Window resize management
 #[macroquad::main(window_conf)]
 async fn main() {
     seed_rng();  // Seed the RNG with current timestamp
@@ -785,11 +1136,11 @@ async fn main() {
     let attractor_h = (h as f32 - UI_AREA_HEIGHT) as usize;  // Reserve space for UI
     let mut paused = false;
     let mut show_help = false;
-    let mut monochrome = false;  // Global monochrome mode flag
+    let monochrome = false;  // Global monochrome mode flag
     let mut color_state = ColorState::Monochrome;  // Current color state
     let mut shared_params = (0.0, 0.0, 0.0, 0.0);  // Shared parameters for correlated mode
     // Removed correlated_deviation slider - now using random values between 0-1%
-    let mut symmetry = SymmetryType::None;  // Current symmetry mode
+                let mut symmetry = SymmetryType::Radial6;  // Current symmetry mode - default to 6-fold
     let mut global_invert = false;  // Global day/night mode (false = day, true = night)
 
     let mut attractors = vec![
@@ -836,6 +1187,10 @@ async fn main() {
     }
 
     loop {
+        // =============================================================================
+        // Window Resize Handling
+        // =============================================================================
+        
         // Handle window resize
         let current_w = screen_width() as usize;
         let current_h = screen_height() as usize;
@@ -941,6 +1296,10 @@ async fn main() {
             clear_background(if attractors[0].invert { WHITE } else { BLACK });
         }
 
+        // =============================================================================
+        // Input Handling and Event Processing
+        // =============================================================================
+        
         // Handle input
         // Q key for quit (only in native builds)
         #[cfg(not(target_arch = "wasm32"))]
@@ -948,6 +1307,7 @@ async fn main() {
             std::process::exit(0);
         }
 
+        // Spacebar reset - immediately generates new attractors, skipping Displaying mode
         if is_key_pressed(KeyCode::Space) {
             match color_state {
                 ColorState::Correlated => {
@@ -984,7 +1344,7 @@ async fn main() {
                 }
                 ColorState::Monochrome => {
                     // Only reset the red attractor in monochrome mode
-                    attractors[0].reset_with_random_params(paused);
+                    attractors[0].reset_and_start(paused);
                     // Ensure invert state matches global setting
                     attractors[0].invert = global_invert;
                     // Clear pixel data from inactive attractors
@@ -1001,7 +1361,7 @@ async fn main() {
                 ColorState::RGB => {
                     // Reset all attractors with independent parameters
                     for attractor in attractors.iter_mut() {
-                        attractor.reset_with_random_params(paused);
+                        attractor.reset_and_start(paused);
                         // Ensure invert state matches global setting
                         attractor.invert = global_invert;
                     }
@@ -1063,7 +1423,7 @@ async fn main() {
                     }
                 } else {
                     // Reset the attractor when toggled back on
-                    attractors[0].reset_with_random_params(paused);
+                    attractors[0].reset_and_start(paused);
                     // Ensure invert state matches global setting
                     attractors[0].invert = global_invert;
                 }
@@ -1078,7 +1438,7 @@ async fn main() {
                     }
                 } else {
                     // Reset the attractor when toggled back on
-                    attractors[1].reset_with_random_params(paused);
+                    attractors[1].reset_and_start(paused);
                     // Ensure invert state matches global setting
                     attractors[1].invert = global_invert;
                 }
@@ -1093,14 +1453,14 @@ async fn main() {
                     }
                 } else {
                     // Reset the attractor when toggled back on
-                    attractors[2].reset_with_random_params(paused);
+                    attractors[2].reset_and_start(paused);
                     // Ensure invert state matches global setting
                     attractors[2].invert = global_invert;
                 }
             }
         }
 
-        // Add monochrome mode toggle
+        // Add color mode toggle - immediately starts attractors with new parameters
         if is_key_pressed(KeyCode::M) {
             color_state = match color_state {
                 ColorState::RGB => ColorState::Monochrome,
@@ -1138,6 +1498,9 @@ async fn main() {
                     attractors[0].reset_with_random_params(paused);
                     // Ensure invert state matches global setting
                     attractors[0].invert = global_invert;
+                    // Force to Running state so it can start drawing immediately
+                    attractors[0].status = AttractorStatus::Running;
+                    attractors[0].start_time = get_time();
                 }
                 ColorState::Correlated => {
                     // Generate shared parameters for correlated mode
@@ -1154,7 +1517,7 @@ async fn main() {
                     let correlation = generate_random_correlation();
                     
                     // Apply shared parameters with deviations and same starting positions to all attractors
-                    for attractor in attractors.iter_mut() {
+                    for (index, attractor) in attractors.iter_mut().enumerate() {
                         attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlation);
                         attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlation);
                         attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlation);
@@ -1162,15 +1525,25 @@ async fn main() {
                         attractor.x = start_x;
                         attractor.y = start_y;
                         
-                        // Clear pixel data and reset
+                        // Clear pixel data
                         attractor.pixels.fill(0);
                         attractor.changed_pixel_indices.clear();
                         attractor.nonzero_pixels = 0;
                         attractor.maxed_pixels = 0;
-                        attractor.status = AttractorStatus::Running;
-                        attractor.start_time = get_time();
-                        attractor.display_start_time = get_time();
-                        attractor.fade_start_time = get_time();
+                        
+                        // Only the first attractor (Red) starts immediately
+                        // Others wait for it to complete its cycle to avoid interference
+                        if index == 0 {
+                            attractor.status = AttractorStatus::Running;
+                            attractor.start_time = get_time();
+                            attractor.display_start_time = get_time();
+                            attractor.fade_start_time = get_time();
+                        } else {
+                            // Keep inactive until the first attractor completes
+                            attractor.status = AttractorStatus::Displaying;
+                            attractor.display_start_time = get_time();
+                            attractor.fade_start_time = get_time();
+                        }
                         
                         // Recalculate scales for new parameters
                         attractor.calculate_scales();
@@ -1186,6 +1559,9 @@ async fn main() {
                         attractor.reset_with_random_params(paused);
                         // Ensure invert state matches global setting
                         attractor.invert = global_invert;
+                        // Force to Running state so it can start drawing immediately
+                        attractor.status = AttractorStatus::Running;
+                        attractor.start_time = get_time();
                     }
                 }
             }
@@ -1243,9 +1619,20 @@ async fn main() {
             }
         }
 
+        // =============================================================================
+        // Attractor Simulation and State Management
+        // =============================================================================
+        
         if !paused {
             iterations = 0;
             let mut needs_correlated_reset = false;
+            let mut needs_correlated_sync = false;
+            let mut correlated_sync_time = 0.0;
+            let mut needs_monochrome_sync = false;
+            let mut monochrome_sync_time = 0.0;
+            let mut needs_comprehensive_reset = false;
+            let mut monochrome_cycle_complete = false;
+            let mut needs_monochrome_cycle_check = false;
             
             // In monochrome mode, only process the red attractor
             let attractors_to_process = if color_state == ColorState::Monochrome {
@@ -1270,27 +1657,85 @@ async fn main() {
                         iterations += local_iterations;
                         iteration_time = get_time() - iteration_start;
 
-                        if attractor.should_reset(frame_count) {
-                            // In correlated mode, immediately mark for reset of all attractors
-                            if color_state == ColorState::Correlated {
-                                needs_correlated_reset = true;
-                            }
-                            println!("  Attractor transitioning to Displaying state (frame {})", frame_count);
+                        // Check for stuck attractors (too many consecutive empty steps)
+                        if attractor.consecutive_empty_steps >= 1000 {
+                            println!("  Attractor {} stuck for {} steps - transitioning to Displaying state", 
+                                     match attractor.channel { ColorChannel::Red => "Red", ColorChannel::Green => "Green", ColorChannel::Blue => "Blue" },
+                                     attractor.consecutive_empty_steps);
                             attractor.status = AttractorStatus::Displaying;
-                            attractor.display_start_time = get_time();
+                            let current_time = get_time();
+                            attractor.display_start_time = current_time;
+                            attractor.consecutive_empty_steps = 0; // Reset the counter
+                            
+                            // In monochrome mode, synchronize all channels when Red transitions to Displaying
+                            if color_state == ColorState::Monochrome && attractor.channel == ColorChannel::Red {
+                                println!("  Monochrome mode: Synchronizing Green and Blue attractors to Displaying state");
+                                // Set flag to synchronize after the loop to avoid borrowing conflicts
+                                needs_monochrome_sync = true;
+                                monochrome_sync_time = current_time;
+                            }
+                            
+                            // Validate the timing values to prevent corruption
+                            println!("  Timing validation: current_time={:.1}, display_start_time={:.1}", 
+                                     current_time, attractor.display_start_time);
+                        }
+                        // Only check for reset if we haven't just transitioned to Displaying
+                        // This prevents immediate re-entry into Running state
+                        else {
+                            let time_since_display_start = get_time() - attractor.display_start_time;
+                            // In monochrome mode, suppress saturation messages for green and blue attractors
+                            let suppress_messages = color_state == ColorState::Monochrome && 
+                                                   matches!(attractor.channel, ColorChannel::Green | ColorChannel::Blue);
+                            if time_since_display_start > DISPLAY_GRACE_PERIOD && attractor.should_reset(frame_count, suppress_messages) {
+                                // Saturation or time limit reached - go to Displaying state first to show results
+                                // The comprehensive reset will happen after the Display → Fade cycle completes
+                                
+                                // In correlated mode, ALL attractors go to Displaying state when ANY reaches saturation
+                                if color_state == ColorState::Correlated {
+                                    needs_correlated_sync = true;
+                                    correlated_sync_time = get_time();
+                                }
+                                
+                                // In monochrome mode, synchronize all channels when Red transitions to Displaying
+                                if color_state == ColorState::Monochrome && attractor.channel == ColorChannel::Red {
+                                    let current_time = get_time();
+                                    // Set flag to synchronize after the loop to avoid borrowing conflicts
+                                    needs_monochrome_sync = true;
+                                    monochrome_sync_time = current_time;
+                                }
+                                
+                                // Transition to Displaying state to show results before fading
+                                attractor.status = AttractorStatus::Displaying;
+                                let current_time = get_time();
+                                attractor.display_start_time = current_time;
+                            }
                         }
                     }
                     AttractorStatus::Displaying => {
                         let display_elapsed = get_time() - attractor.display_start_time;
+                        
+                        // Debug: Log the current state to help diagnose timing issues
+                        if frame_count % 60 == 0 { // Log every 60 frames (about once per second)
+                            println!("  Attractor {} in Displaying state: elapsed={:.1}s, start_time={:.1}, current_time={:.1}", 
+                                     match attractor.channel { ColorChannel::Red => "Red", ColorChannel::Green => "Green", ColorChannel::Blue => "Blue" },
+                                     display_elapsed, attractor.display_start_time, get_time());
+                        }
+                        
                         if display_elapsed >= DISPLAY_DURATION {
-                            println!("  Attractor transitioning to Fading state after {:.1}s", display_elapsed);
                             attractor.status = AttractorStatus::Fading;
                             attractor.fade_start_time = get_time();
-                        } else if display_elapsed > DISPLAY_DURATION * 2.0 {
+                        } else if display_elapsed > DISPLAY_DURATION * 1.5 { // More aggressive safety: 15 seconds instead of 20
                             // Safety mechanism: force transition if stuck in displaying for too long
-                            println!("  Safety reset: attractor stuck in displaying for {:.1}s, forcing fade", display_elapsed);
                             attractor.status = AttractorStatus::Fading;
                             attractor.fade_start_time = get_time();
+                        } else if display_elapsed > 30.0 { // Emergency safety: force reset after 30 seconds
+                            // This should never happen, but if it does, force a complete reset
+                            attractor.reset_with_random_params(paused);
+                            attractor.status = AttractorStatus::Running;
+                            attractor.start_time = get_time();
+                            attractor.display_start_time = get_time();
+                            attractor.fade_start_time = get_time();
+                            attractor.consecutive_empty_steps = 0;
                         }
                     }
                     AttractorStatus::Fading => {
@@ -1299,16 +1744,42 @@ async fn main() {
                             // Reset based on current color state
                             match color_state {
                                 ColorState::Correlated => {
-                                    // In correlated mode, the flag was already set when should_reset() returned true
-                                    // Just transition to running state - the reset will be handled after the loop
-                                    attractor.status = AttractorStatus::Running;
+                                    // In correlated mode, when ANY attractor ends fade, ALL get reset with new parameters
+                                    println!("  Correlated mode: {} attractor completed fade - triggering full reset for all", 
+                                             match attractor.channel { ColorChannel::Red => "Red", ColorChannel::Green => "Green", ColorChannel::Blue => "Blue" });
+                                    needs_correlated_reset = true; // This will reset ALL attractors after the loop
+                                    // This attractor goes to Displaying to show results before the reset
+                                    attractor.status = AttractorStatus::Displaying;
+                                    attractor.display_start_time = get_time();
                                 }
                                 _ => {
                                     // For RGB and Monochrome modes, use individual reset
-                                    attractor.reset_with_random_params(paused);
-                                    // Ensure invert state matches global setting
-                                    attractor.invert = global_invert;
-                                    attractor.status = AttractorStatus::Running;
+                                    if color_state == ColorState::Monochrome && attractor.channel == ColorChannel::Red {
+                                        // In monochrome mode, after Red completes fade, go to Displaying
+                                        // The comprehensive reset will happen after ALL attractors complete their cycles
+                                        println!("  Monochrome mode: Red attractor completed fade - going to Displaying");
+                                        // Red goes to Displaying to show results
+                                        attractor.status = AttractorStatus::Displaying;
+                                        attractor.display_start_time = get_time();
+                                        
+                                        // Set flag to check cycle completion after the loop to avoid borrowing conflicts
+                                        needs_monochrome_cycle_check = true;
+                                    } else if color_state == ColorState::Monochrome {
+                                        // Green and Blue attractors in monochrome mode also go to Displaying
+                                        // They'll complete their cycles before the comprehensive reset
+                                        attractor.status = AttractorStatus::Displaying;
+                                        attractor.display_start_time = get_time();
+                                        
+                                        // Set flag to check cycle completion after the loop to avoid borrowing conflicts
+                                        needs_monochrome_cycle_check = true;
+                                    } else {
+                                        // For RGB mode, use individual reset
+                                        attractor.reset_with_random_params(paused);
+                                        // Ensure invert state matches global setting
+                                        attractor.invert = global_invert;
+                                        // Now explicitly set the status to Running after the reset
+                                        attractor.status = AttractorStatus::Running;
+                                    }
                                 }
                             }
                             
@@ -1330,9 +1801,33 @@ async fn main() {
                         } else {
                             // Fade every other frame to control fade speed
                             // Skip individual attractor fade in monochrome mode - handled separately
-                            let should_skip_fade = color_state == ColorState::Monochrome && matches!(attractor.channel, ColorChannel::Red);
+                            // Also skip individual fade in correlated mode - handled globally
+                            let should_skip_fade = (color_state == ColorState::Monochrome && matches!(attractor.channel, ColorChannel::Red)) ||
+                                                  (color_state == ColorState::Correlated);
                             if frame_count % 2 == 0 && !should_skip_fade {
+                                // For fading, we need to update ALL non-zero pixels, not just changed ones
+                                // Create a list of all pixels that need to be faded and updated
+                                let mut pixels_to_update = Vec::new();
+                                for (idx, &pixel_value) in attractor.pixels.iter().enumerate() {
+                                    if pixel_value > 0 {
+                                        pixels_to_update.push((idx, pixel_value));
+                                    }
+                                }
+                                
+                                // Apply the fade effect
                                 attractor.fade_pixels();
+                                
+                                // Update the image buffer with ALL faded pixel values so the fade effect is visible
+                                for (idx, _) in pixels_to_update {
+                                    if idx < image_buffer.len() && idx < attractor.pixels.len() {
+                                        let pixel_value = attractor.pixels[idx];
+                                        match attractor.channel {
+                                            ColorChannel::Red => image_buffer[idx][0] = pixel_value,
+                                            ColorChannel::Green => image_buffer[idx][1] = pixel_value,
+                                            ColorChannel::Blue => image_buffer[idx][2] = pixel_value,
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1340,38 +1835,22 @@ async fn main() {
             }
             
             // Handle correlated reset after the loop to avoid borrowing issues
-            if needs_correlated_reset {
-                // Generate new shared parameters for correlated mode
+            if needs_correlated_reset && color_state == ColorState::Correlated {
+                println!("  Correlated mode: Performing full reset for all attractors");
+                
+                // Generate new shared parameters for all attractors
                 shared_params = PickoverSystem::generate_interesting_params(paused);
-                // Use the same starting position for all attractors
                 let start_x = 0.1;
                 let start_y = 0.1;
-                // Generate random correlation for this reset
                 let correlation = generate_random_correlation();
                 
                 // Clear the entire image buffer since all attractors are being reset
-                // But respect the current invert state and any pending full refresh needs
                 let fill_value = if attractors[0].invert { 255 } else { 0 };
                 image_buffer.iter_mut().for_each(|p| {
                     p[0] = fill_value;
                     p[1] = fill_value;
                     p[2] = fill_value;
                 });
-                
-                // If any attractor needs a full refresh (e.g., after inversion), 
-                // apply the inversion to the newly cleared buffer
-                for attractor in attractors.iter_mut() {
-                    if attractor.needs_full_refresh {
-                        // Apply inversion to the entire image buffer
-                        for pixel in image_buffer.iter_mut() {
-                            pixel[0] = 255 - pixel[0];
-                            pixel[1] = 255 - pixel[1];
-                            pixel[2] = 255 - pixel[2];
-                        }
-                        // Clear the flag since we've applied the refresh
-                        attractor.clear_full_refresh_flag();
-                    }
-                }
                 
                 // Apply shared parameters with deviations and same starting positions to all attractors
                 for attractor in attractors.iter_mut() {
@@ -1382,7 +1861,7 @@ async fn main() {
                     attractor.x = start_x;
                     attractor.y = start_y;
                     
-                    // Clear pixel data and reset
+                    // Clear pixel data and reset all counters
                     attractor.pixels.fill(0);
                     attractor.changed_pixel_indices.clear();
                     attractor.nonzero_pixels = 0;
@@ -1391,16 +1870,175 @@ async fn main() {
                     attractor.start_time = get_time();
                     attractor.display_start_time = get_time();
                     attractor.fade_start_time = get_time();
+                    attractor.consecutive_empty_steps = 0;
                     
                     // Recalculate scales for new parameters
                     attractor.calculate_scales();
                 }
                 
-                // Reset the flag
                 needs_correlated_reset = false;
+            }
+            
+            // Handle monochrome synchronization after the loop to avoid borrowing issues
+            if needs_monochrome_sync && color_state == ColorState::Monochrome {
+                // Synchronize Green and Blue attractors to match Red's state
+                if attractors[0].status == AttractorStatus::Displaying {
+                    // Red is in Displaying state - put Green and Blue there too
+                    attractors[1].status = AttractorStatus::Displaying;
+                    attractors[1].display_start_time = monochrome_sync_time;
+                    attractors[2].status = AttractorStatus::Displaying;
+                    attractors[2].display_start_time = monochrome_sync_time;
+                } else if attractors[0].status == AttractorStatus::Running {
+                    // Red is in Running state - put Green and Blue there too
+                    attractors[1].status = AttractorStatus::Running;
+                    attractors[1].start_time = monochrome_sync_time;
+                    attractors[2].status = AttractorStatus::Running;
+                    attractors[2].start_time = monochrome_sync_time;
+                }
+                needs_monochrome_sync = false;
+            }
+            
+            // Handle correlated sync after the loop to avoid borrowing issues
+            if needs_correlated_sync && color_state == ColorState::Correlated {
+                for attractor in attractors.iter_mut() {
+                    if attractor.status == AttractorStatus::Running {
+                        attractor.status = AttractorStatus::Displaying;
+                        attractor.display_start_time = correlated_sync_time;
+                    }
+                }
+                needs_correlated_sync = false;
+            }
+            
+            // Handle correlated fading after the loop to avoid borrowing issues
+            if color_state == ColorState::Correlated {
+                // Check if any attractor is in fading state
+                let any_fading = attractors.iter().any(|a| a.status == AttractorStatus::Fading);
+                if any_fading && frame_count % 2 == 0 { // Fade every other frame
+                    // Fade the entire image buffer by reducing all pixel values
+                    for pixel in image_buffer.iter_mut() {
+                        // Fade each RGB channel independently
+                        if pixel[0] > 0 { pixel[0] = pixel[0].saturating_sub(4); }
+                        if pixel[1] > 0 { pixel[1] = pixel[1].saturating_sub(4); }
+                        if pixel[2] > 0 { pixel[2] = pixel[2].saturating_sub(4); }
+                    }
+                    
+                    // Also fade the individual attractor pixel arrays to keep them in sync
+                    for attractor in attractors.iter_mut() {
+                        if attractor.status == AttractorStatus::Fading {
+                            attractor.fade_pixels();
+                        }
+                    }
+                }
+            }
+            
+            // Handle monochrome cycle completion check after the loop to avoid borrowing issues
+            if needs_monochrome_cycle_check && color_state == ColorState::Monochrome {
+                // Check if all attractors have completed their full Display → Fade cycle
+                let all_completed = attractors.iter().all(|a| a.status == AttractorStatus::Displaying);
+                if all_completed {
+                    println!("  Monochrome mode: All attractors completed full cycles - marking for reset");
+                    monochrome_cycle_complete = true;
+                }
+                needs_monochrome_cycle_check = false;
+            }
+            
+            // Handle comprehensive reset after the loop to avoid borrowing issues
+            // For monochrome mode, only reset after all attractors have completed their full Display → Fade cycle
+            if needs_comprehensive_reset || (color_state == ColorState::Monochrome && monochrome_cycle_complete) {
+                
+                if color_state == ColorState::Monochrome && !needs_comprehensive_reset {
+                    println!("  Monochrome mode: All attractors completed full cycles - triggering comprehensive reset");
+                    needs_comprehensive_reset = true;
+                }
+                
+                println!("  Performing comprehensive reset (same as spacebar) after the loop");
+                
+                // Use the same reset logic as spacebar for comprehensive cleanup
+                match color_state {
+                    ColorState::Correlated => {
+                        // Generate shared parameters for correlated mode
+                        shared_params = PickoverSystem::generate_interesting_params(paused);
+                        // Use the same starting position for all attractors
+                        let start_x = 0.1;
+                        let start_y = 0.1;
+                        // Generate random correlation for this reset
+                        let correlation = generate_random_correlation();
+                        
+                        // Apply shared parameters with deviations and same starting positions to all attractors
+                        for attractor in attractors.iter_mut() {
+                            attractor.a = PickoverSystem::apply_deviation(shared_params.0, correlation);
+                            attractor.b = PickoverSystem::apply_deviation(shared_params.1, correlation);
+                            attractor.c = PickoverSystem::apply_deviation(shared_params.2, correlation);
+                            attractor.d = PickoverSystem::apply_deviation(shared_params.3, correlation);
+                            attractor.x = start_x;
+                            attractor.y = start_y;
+                            
+                            // Clear pixel data and reset
+                            attractor.pixels.fill(0);
+                            attractor.changed_pixel_indices.clear();
+                            attractor.nonzero_pixels = 0;
+                            attractor.maxed_pixels = 0;
+                            attractor.status = AttractorStatus::Running;
+                            attractor.start_time = get_time();
+                            attractor.display_start_time = get_time();
+                            attractor.fade_start_time = get_time();
+                            
+                            // Recalculate scales for new parameters
+                            attractor.calculate_scales();
+                        }
+                    }
+                    ColorState::Monochrome => {
+                        // Only reset the red attractor in monochrome mode
+                        attractors[0].reset_and_start(paused);
+                        // Ensure invert state matches global setting
+                        attractors[0].invert = global_invert;
+                        // Clear pixel data from inactive attractors
+                        attractors[1].pixels.fill(0);
+                        attractors[1].changed_pixel_indices.clear();
+                        attractors[1].nonzero_pixels = 0;
+                        attractors[1].maxed_pixels = 0;
+                        
+                        attractors[2].pixels.fill(0);
+                        attractors[2].changed_pixel_indices.clear();
+                        attractors[2].nonzero_pixels = 0;
+                        attractors[2].maxed_pixels = 0;
+                    }
+                    ColorState::RGB => {
+                        // Reset all attractors with independent parameters
+                        for attractor in attractors.iter_mut() {
+                            attractor.reset_and_start(paused);
+                            // Ensure invert state matches global setting
+                            attractor.invert = global_invert;
+                        }
+                    }
+                }
+                
+                // Clear background and image buffer using global_invert setting (same as spacebar)
+                let fill_value = if global_invert { 255 } else { 0 };
+                clear_background(if global_invert { WHITE } else { BLACK });
+                image_buffer.fill([fill_value, fill_value, fill_value, 255]);
+                
+                // Ensure all attractors have correct invert state and need refresh (same as spacebar)
+                for attractor in attractors.iter_mut() {
+                    attractor.invert = global_invert;
+                    attractor.needs_full_refresh = true;
+                    // Force attractors stuck in "Displaying" mode back to "Running"
+                    if attractor.status == AttractorStatus::Displaying {
+                        attractor.status = AttractorStatus::Running;
+                        attractor.start_time = get_time();
+                    }
+                    attractor.consecutive_empty_steps = 0;
+                }
+                
+                needs_comprehensive_reset = false;
+                monochrome_cycle_complete = false;
             }
         }
 
+        // =============================================================================
+        // Image Buffer Updates and Rendering
+        // =============================================================================
+        
         let pixel_start = get_time();
         let image_data = image.get_image_data_mut();
 
@@ -1418,18 +2056,16 @@ async fn main() {
                             if red_attractor.invert {
                                 // In inverted mode, fade towards white (255)
                                 if pixel[0] < 255 || pixel[1] < 255 || pixel[2] < 255 {
-                                    let fade_amount = 4;
-                                    pixel[0] = pixel[0].saturating_add(fade_amount);
-                                    pixel[1] = pixel[1].saturating_add(fade_amount);
-                                    pixel[2] = pixel[2].saturating_add(fade_amount);
+                                    pixel[0] = pixel[0].saturating_add(FADE_AMOUNT);
+                                    pixel[1] = pixel[1].saturating_add(FADE_AMOUNT);
+                                    pixel[2] = pixel[2].saturating_add(FADE_AMOUNT);
                                 }
                             } else {
                                 // In normal mode, fade towards black (0)
                                 if pixel[0] > 0 || pixel[1] > 0 || pixel[2] > 0 {
-                                    let fade_amount = 4;
-                                    pixel[0] = pixel[0].saturating_sub(fade_amount);
-                                    pixel[1] = pixel[1].saturating_sub(fade_amount);
-                                    pixel[2] = pixel[2].saturating_sub(fade_amount);
+                                    pixel[0] = pixel[0].saturating_sub(FADE_AMOUNT);
+                                    pixel[1] = pixel[1].saturating_sub(FADE_AMOUNT);
+                                    pixel[2] = pixel[2].saturating_sub(FADE_AMOUNT);
                                 }
                             }
                         }
@@ -1438,8 +2074,8 @@ async fn main() {
                     // Normal operation - update from attractor's pixel data
                     if red_attractor.needs_full_refresh {
                         // Full refresh needed (e.g., after inversion)
-                        for (idx, pixel) in image_buffer.iter_mut().enumerate() {
-                            let intensity = red_attractor.pixels[idx];
+                        for (_idx, pixel) in image_buffer.iter_mut().enumerate() {
+                            let intensity = red_attractor.pixels[_idx];
                             let pixel_value = if red_attractor.invert { 255 - intensity } else { intensity };
                             pixel[0] = pixel_value;
                             pixel[1] = pixel_value;
@@ -1447,13 +2083,19 @@ async fn main() {
                         }
                         red_attractor.clear_full_refresh_flag();
                     } else {
-                        // Only update changed pixels
+                        // Only update changed pixels with bounds checking
                         for &idx in &red_attractor.changed_pixel_indices {
-                            let pixel_value = if red_attractor.invert { 255 - red_attractor.pixels[idx] } else { red_attractor.pixels[idx] };
-                            // Ensure all RGB channels have the same value to maintain monochrome appearance
-                            image_buffer[idx][0] = pixel_value;
-                            image_buffer[idx][1] = pixel_value;
-                            image_buffer[idx][2] = pixel_value;
+                            // Safety check: ensure index is within bounds
+                            if idx < image_buffer.len() && idx < red_attractor.pixels.len() {
+                                let pixel_value = if red_attractor.invert { 255 - red_attractor.pixels[idx] } else { red_attractor.pixels[idx] };
+                                // Ensure all RGB channels have the same value to maintain monochrome appearance
+                                image_buffer[idx][0] = pixel_value;
+                                image_buffer[idx][1] = pixel_value;
+                                image_buffer[idx][2] = pixel_value;
+                            } else {
+                                #[cfg(debug_assertions)]
+                                eprintln!("Warning: Image buffer index {} out of bounds", idx);
+                            }
                         }
                         red_attractor.changed_pixel_indices.clear();
                     }
@@ -1462,7 +2104,7 @@ async fn main() {
                 // When red attractor starts fading, ensure all channels are in sync
                 if red_attractor.status == AttractorStatus::Fading {
                     // Ensure all RGB channels have the same values before starting fade
-                    for (idx, pixel) in image_buffer.iter_mut().enumerate() {
+                    for (_idx, pixel) in image_buffer.iter_mut().enumerate() {
                         let current_value = pixel[0]; // Use red channel as reference
                         pixel[1] = current_value;
                         pixel[2] = current_value;
@@ -1475,10 +2117,16 @@ async fn main() {
                     if !attractor.active {
                         continue;
                     }
+                    
+                    // Skip pixel updates during fade phase to allow our fade effect to be visible
+                    if attractor.status == AttractorStatus::Fading {
+                        continue;
+                    }
+                    
                     if attractor.needs_full_refresh {
                         // Full refresh needed (e.g., after inversion)
-                        for (idx, pixel) in image_buffer.iter_mut().enumerate() {
-                            let intensity = attractor.pixels[idx];
+                        for (_idx, pixel) in image_buffer.iter_mut().enumerate() {
+                            let intensity = attractor.pixels[_idx];
                             let pixel_value = if attractor.invert { 255 - intensity } else { intensity };
                             match attractor.channel {
                                 ColorChannel::Red => pixel[0] = pixel_value,
@@ -1509,8 +2157,8 @@ async fn main() {
                     }
                     if attractor.needs_full_refresh {
                         // Full refresh needed (e.g., after inversion)
-                        for (idx, pixel) in image_buffer.iter_mut().enumerate() {
-                            let intensity = attractor.pixels[idx];
+                        for (_idx, pixel) in image_buffer.iter_mut().enumerate() {
+                            let intensity = attractor.pixels[_idx];
                             let pixel_value = if attractor.invert { 255 - intensity } else { intensity };
                             match attractor.channel {
                                 ColorChannel::Red => pixel[0] = pixel_value,
@@ -1550,19 +2198,20 @@ async fn main() {
         
         // Enhanced UI color palette - modern dark theme
         let text_color = Color::new(0.95, 0.95, 0.95, 1.0);  // Slightly off-white for better readability
-        let label_color = Color::new(0.8, 0.8, 0.8, 1.0);    // Slightly dimmer for labels
+        let _label_color = Color::new(0.8, 0.8, 0.8, 1.0);    // Slightly dimmer for labels
         let button_bg_color = Color::new(0.15, 0.15, 0.18, 0.95);  // Dark blue-gray background
         let button_active_color = Color::new(0.25, 0.25, 0.35, 0.95);  // Active button color
-        let button_hover_color = Color::new(0.2, 0.2, 0.25, 0.95);  // Hover state color
+        let _button_hover_color = Color::new(0.2, 0.2, 0.25, 0.95);  // Hover state color
         
         // Improved spacing and layout
-        let ui_padding = 15.0;  // Increased padding for better breathing room
-        let button_height = 28.0;  // Slightly taller buttons
-        let button_spacing = 8.0;  // Space between buttons
-        let row_spacing = 12.0;  // Space between rows
+        // =============================================================================
+        // UI Rendering and Button Layout
+        // =============================================================================
+        
+        // Use constants for consistent UI layout
         
         // Draw RGB button with improved layout
-        let rgb_button_rect = Rect::new(ui_padding, ui_y + 10.0, 85.0, button_height);
+        let rgb_button_rect = Rect::new(UI_PADDING, ui_y + 10.0, RGB_BUTTON_WIDTH, BUTTON_HEIGHT);
         let rgb_button_color = if color_state == ColorState::RGB { 
             button_active_color
         } else { 
@@ -1570,33 +2219,33 @@ async fn main() {
         };
         draw_rectangle(rgb_button_rect.x, rgb_button_rect.y, rgb_button_rect.w, rgb_button_rect.h, rgb_button_color);
         let rgb_button_text = if attractors[0].invert { "CYM" } else { "RGB" };
-        let text_y = rgb_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = rgb_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved(rgb_button_text, rgb_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Monochrome button with proper spacing
-        let mono_button_rect = Rect::new(ui_padding + 85.0 + button_spacing, ui_y + 10.0, 85.0, button_height);
+        let mono_button_rect = Rect::new(UI_PADDING + RGB_BUTTON_WIDTH + BUTTON_SPACING, ui_y + 10.0, MONO_BUTTON_WIDTH, BUTTON_HEIGHT);
         let mono_button_color = if color_state == ColorState::Monochrome { 
             button_active_color
         } else { 
             button_bg_color
         };
         draw_rectangle(mono_button_rect.x, mono_button_rect.y, mono_button_rect.w, mono_button_rect.h, mono_button_color);
-        let text_y = mono_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = mono_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved("Monochrome", mono_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Correlated button with proper spacing
-        let corr_button_rect = Rect::new(ui_padding + 85.0 + 85.0 + button_spacing * 2.0, ui_y + 10.0, 85.0, button_height);
+        let corr_button_rect = Rect::new(UI_PADDING + RGB_BUTTON_WIDTH + MONO_BUTTON_WIDTH + BUTTON_SPACING * 2.0, ui_y + 10.0, CORR_BUTTON_WIDTH, BUTTON_HEIGHT);
         let corr_button_color = if color_state == ColorState::Correlated { 
             button_active_color
         } else { 
             button_bg_color
         };
         draw_rectangle(corr_button_rect.x, corr_button_rect.y, corr_button_rect.w, corr_button_rect.h, corr_button_color);
-        let text_y = corr_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = corr_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved("Correlated", corr_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Symmetry button with proper spacing
-        let symmetry_button_rect = Rect::new(ui_padding + 85.0 + 85.0 + 85.0 + button_spacing * 3.0, ui_y + 10.0, 75.0, button_height);
+        let symmetry_button_rect = Rect::new(UI_PADDING + RGB_BUTTON_WIDTH + MONO_BUTTON_WIDTH + CORR_BUTTON_WIDTH + BUTTON_SPACING * 3.0, ui_y + 10.0, SYMMETRY_BUTTON_WIDTH, BUTTON_HEIGHT);
         let symmetry_button_color = if symmetry != SymmetryType::None { 
             button_active_color
         } else { 
@@ -1604,42 +2253,42 @@ async fn main() {
         };
         draw_rectangle(symmetry_button_rect.x, symmetry_button_rect.y, symmetry_button_rect.w, symmetry_button_rect.h, symmetry_button_color);
         let symmetry_text = get_symmetry_display_name(symmetry);
-        let text_y = symmetry_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = symmetry_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved(symmetry_text, symmetry_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Day/Night button with improved layout
-        let day_button_rect = Rect::new(ui_padding, ui_y + 10.0 + button_height + row_spacing, 55.0, button_height);
+        let day_button_rect = Rect::new(UI_PADDING, ui_y + 10.0 + BUTTON_HEIGHT + ROW_SPACING, DAY_BUTTON_WIDTH, BUTTON_HEIGHT);
         let day_button_text = if global_invert { "Day" } else { "Night" };  // Shows current state
         draw_rectangle(day_button_rect.x, day_button_rect.y, day_button_rect.w, day_button_rect.h, button_bg_color);
-        let text_y = day_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = day_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved(day_button_text, day_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Pause/Resume button with proper spacing
-        let pause_button_rect = Rect::new(ui_padding + 55.0 + button_spacing, ui_y + 10.0 + button_height + row_spacing, 65.0, button_height);
+        let pause_button_rect = Rect::new(UI_PADDING + DAY_BUTTON_WIDTH + BUTTON_SPACING, ui_y + 10.0 + BUTTON_HEIGHT + ROW_SPACING, PAUSE_BUTTON_WIDTH, BUTTON_HEIGHT);
         let pause_button_text = if paused { "Resume" } else { "Pause" };
         draw_rectangle(pause_button_rect.x, pause_button_rect.y, pause_button_rect.w, pause_button_rect.h, button_bg_color);
-        let text_y = pause_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = pause_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved(pause_button_text, pause_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Help button with proper spacing
-        let help_button_rect = Rect::new(ui_padding + 55.0 + 65.0 + button_spacing * 2.0, ui_y + 10.0 + button_height + row_spacing, 35.0, button_height);
+        let help_button_rect = Rect::new(UI_PADDING + DAY_BUTTON_WIDTH + PAUSE_BUTTON_WIDTH + BUTTON_SPACING * 2.0, ui_y + 10.0 + BUTTON_HEIGHT + ROW_SPACING, HELP_BUTTON_WIDTH, BUTTON_HEIGHT);
         draw_rectangle(help_button_rect.x, help_button_rect.y, help_button_rect.w, help_button_rect.h, button_bg_color);
-        let text_y = help_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = help_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved("?", help_button_rect.x + 12.0, text_y, 16.0, text_color);
         
         // Draw Next button with proper spacing
-        let next_button_rect = Rect::new(ui_padding + 55.0 + 65.0 + 35.0 + button_spacing * 3.0, ui_y + 10.0 + button_height + row_spacing, 45.0, button_height);
+        let next_button_rect = Rect::new(UI_PADDING + DAY_BUTTON_WIDTH + PAUSE_BUTTON_WIDTH + HELP_BUTTON_WIDTH + BUTTON_SPACING * 3.0, ui_y + 10.0 + BUTTON_HEIGHT + ROW_SPACING, NEXT_BUTTON_WIDTH, BUTTON_HEIGHT);
         draw_rectangle(next_button_rect.x, next_button_rect.y, next_button_rect.w, next_button_rect.h, button_bg_color);
-        let text_y = next_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = next_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         draw_text_improved("Next", next_button_rect.x + 8.0, text_y, 16.0, text_color);
         
         // Draw Quit button with proper spacing (only in native builds)
         #[cfg(not(target_arch = "wasm32"))]
-        let quit_button_rect = Rect::new(ui_padding + 55.0 + 65.0 + 35.0 + 45.0 + button_spacing * 4.0, ui_y + 10.0 + button_height + row_spacing, 45.0, button_height);
+        let quit_button_rect = Rect::new(UI_PADDING + DAY_BUTTON_WIDTH + PAUSE_BUTTON_WIDTH + HELP_BUTTON_WIDTH + NEXT_BUTTON_WIDTH + BUTTON_SPACING * 4.0, ui_y + 10.0 + BUTTON_HEIGHT + ROW_SPACING, QUIT_BUTTON_WIDTH, BUTTON_HEIGHT);
         #[cfg(not(target_arch = "wasm32"))]
         draw_rectangle(quit_button_rect.x, quit_button_rect.y, quit_button_rect.w, quit_button_rect.h, button_bg_color);
         #[cfg(not(target_arch = "wasm32"))]
-        let text_y = quit_button_rect.y + (button_height + 16.0) / 2.0;  // Center text vertically
+        let text_y = quit_button_rect.y + (BUTTON_HEIGHT + 16.0) / 2.0;  // Center text vertically
         #[cfg(not(target_arch = "wasm32"))]
         draw_text_improved("Quit", quit_button_rect.x + 8.0, text_y, 16.0, text_color);
         
@@ -1649,7 +2298,7 @@ async fn main() {
             
             // Check if click is in the display area (above the UI area)
             if mouse_pos.1 < screen_height() - UI_AREA_HEIGHT {
-                // Left click in display area acts as Next button
+                // Left click in display area acts as Next button - immediately generates new attractors, skipping Displaying mode
                 match color_state {
                     ColorState::Correlated => {
                         // Generate shared parameters for correlated mode
@@ -1685,7 +2334,7 @@ async fn main() {
                     }
                     ColorState::Monochrome => {
                         // Only reset the red attractor in monochrome mode
-                        attractors[0].reset_with_random_params(paused);
+                        attractors[0].reset_and_start(paused);
                         // Clear pixel data from inactive attractors
                         attractors[1].pixels.fill(0);
                         attractors[1].changed_pixel_indices.clear();
@@ -1700,7 +2349,7 @@ async fn main() {
                     ColorState::RGB => {
                         // Reset all attractors with independent parameters
                         for attractor in attractors.iter_mut() {
-                            attractor.reset_with_random_params(paused);
+                            attractor.reset_and_start(paused);
                         }
                     }
                 }
@@ -1735,7 +2384,7 @@ async fn main() {
                     attractors[2].active = true;
                     // Reset all attractors with independent parameters
                     for attractor in attractors.iter_mut() {
-                        attractor.reset_with_random_params(paused);
+                        attractor.reset_and_start(paused);
                     }
                     
                     // Clear the screen respecting current day/night mode
@@ -1792,7 +2441,7 @@ async fn main() {
                     attractors[2].fade_start_time = get_time();
                     
                     // Reset the red attractor with new parameters
-                    attractors[0].reset_with_random_params(paused);
+                    attractors[0].reset_and_start(paused);
                     
                     // Clear the screen respecting current day/night mode
                     clear_background(if global_invert { WHITE } else { BLACK });
@@ -1877,7 +2526,8 @@ async fn main() {
                 }
             }
             
-            // Symmetry button click
+            // Symmetry button click - changes symmetry and restarts attractor with new symmetry
+            // This ensures the attractor can immediately start drawing with the new symmetry pattern
             if symmetry_button_rect.contains(vec2(mouse_pos.0, mouse_pos.1)) {
                 symmetry = match symmetry {
                     SymmetryType::None => SymmetryType::Radial4,
@@ -1898,6 +2548,9 @@ async fn main() {
                     attractor.changed_pixel_indices.clear();
                     attractor.nonzero_pixels = 0;
                     attractor.maxed_pixels = 0;
+                    
+                    // For symmetry changes, we need to ensure the attractor can start drawing again
+                    // Force to Running state so it can immediately begin plotting with new symmetry
                     attractor.status = AttractorStatus::Running;
                     attractor.start_time = get_time();
                     attractor.display_start_time = get_time();
@@ -1906,11 +2559,17 @@ async fn main() {
                     // Reset position to starting point but keep parameters
                     attractor.x = 0.1;
                     attractor.y = 0.1;
+                    
+                    // Reset the empty steps counter to allow drawing to resume
+                    attractor.consecutive_empty_steps = 0;
+                    
+                    // Mark that this attractor needs a fresh start after symmetry change
+                    attractor.needs_full_refresh = true;
                 }
                 
-                // Clear the screen respecting current day/night mode
-                clear_background(if global_invert { WHITE } else { BLACK });
-                let fill_value = if global_invert { 255 } else { 0 };
+                // Clear the screen
+                clear_background(if attractors[0].invert { WHITE } else { BLACK });
+                let fill_value = if attractors[0].invert { 255 } else { 0 };
                 for pixel in image_buffer.iter_mut() {
                     pixel[0] = fill_value;
                     pixel[1] = fill_value;
@@ -1969,7 +2628,7 @@ async fn main() {
                 println!("Help display toggled: {}", if show_help { "shown" } else { "hidden" });
             }
             
-            // Next button click
+            // Next button click - immediately generates new attractors, skipping Displaying mode
             if next_button_rect.contains(vec2(mouse_pos.0, mouse_pos.1)) {
                 match color_state {
                     ColorState::Correlated => {
@@ -2009,7 +2668,7 @@ async fn main() {
                     }
                     ColorState::Monochrome => {
                         // Only reset the red attractor in monochrome mode
-                        attractors[0].reset_with_random_params(paused);
+                        attractors[0].reset_and_start(paused);
                         // Ensure invert state matches global setting
                         attractors[0].invert = global_invert;
                         // Clear pixel data from inactive attractors
@@ -2026,7 +2685,7 @@ async fn main() {
                     ColorState::RGB => {
                         // Reset all attractors with independent parameters
                         for attractor in attractors.iter_mut() {
-                            attractor.reset_with_random_params(paused);
+                            attractor.reset_and_start(paused);
                             // Ensure invert state matches global setting
                             attractor.invert = global_invert;
                         }
@@ -2095,14 +2754,20 @@ async fn main() {
         }
 
         frame_count += 1;
+        // =============================================================================
+        // Performance Monitoring and Debug Output
+        // =============================================================================
+        
         if frame_count % 60 == 0 && !paused {
             let current_time = get_time();
             let elapsed = current_time - last_fps_time;
             fps = 60.0 / elapsed;
             last_fps_time = current_time;
 
-            for attractor in attractors.iter() {
-                attractor.print_stats();
+            for (i, attractor) in attractors.iter().enumerate() {
+                // In monochrome mode, suppress output for green and blue attractors
+                let suppress_output = color_state == ColorState::Monochrome && i != 0;
+                attractor.print_stats(suppress_output);
             }
             println!("Performance metrics:");
             println!("  FPS: {:.1}", fps);
