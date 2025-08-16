@@ -1805,7 +1805,9 @@ async fn main() {
                         } else {
                             // Fade every other frame to control fade speed
                             // Skip individual attractor fade in monochrome mode - handled separately
-                            let should_skip_fade = color_state == ColorState::Monochrome && matches!(attractor.channel, ColorChannel::Red);
+                            // Also skip individual fade in correlated mode - handled globally
+                            let should_skip_fade = (color_state == ColorState::Monochrome && matches!(attractor.channel, ColorChannel::Red)) ||
+                                                  (color_state == ColorState::Correlated);
                             if frame_count % 2 == 0 && !should_skip_fade {
                                 // For fading, we need to update ALL non-zero pixels, not just changed ones
                                 // Create a list of all pixels that need to be faded and updated
@@ -1918,6 +1920,30 @@ async fn main() {
                     }
                 }
                 needs_correlated_sync = false;
+            }
+            
+            // Handle correlated fading after the loop to avoid borrowing issues
+            if color_state == ColorState::Correlated {
+                // Check if any attractor is in fading state
+                let any_fading = attractors.iter().any(|a| a.status == AttractorStatus::Fading);
+                if any_fading && frame_count % 2 == 0 { // Fade every other frame
+                    println!("  Correlated mode: Applying fade effect to entire image");
+                    
+                    // Fade the entire image buffer by reducing all pixel values
+                    for pixel in image_buffer.iter_mut() {
+                        // Fade each RGB channel independently
+                        if pixel[0] > 0 { pixel[0] = pixel[0].saturating_sub(4); }
+                        if pixel[1] > 0 { pixel[1] = pixel[1].saturating_sub(4); }
+                        if pixel[2] > 0 { pixel[2] = pixel[2].saturating_sub(4); }
+                    }
+                    
+                    // Also fade the individual attractor pixel arrays to keep them in sync
+                    for attractor in attractors.iter_mut() {
+                        if attractor.status == AttractorStatus::Fading {
+                            attractor.fade_pixels();
+                        }
+                    }
+                }
             }
             
             // Handle monochrome cycle completion check after the loop to avoid borrowing issues
@@ -2106,6 +2132,12 @@ async fn main() {
                     if !attractor.active {
                         continue;
                     }
+                    
+                    // Skip pixel updates during fade phase to allow our fade effect to be visible
+                    if attractor.status == AttractorStatus::Fading {
+                        continue;
+                    }
+                    
                     if attractor.needs_full_refresh {
                         // Full refresh needed (e.g., after inversion)
                         for (_idx, pixel) in image_buffer.iter_mut().enumerate() {
